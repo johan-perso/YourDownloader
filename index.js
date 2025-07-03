@@ -1,7 +1,17 @@
 const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
 const { spawn } = require("child_process")
+const { sanitizeUrl } = require("./utils/sanitize")
 require("dotenv").config()
+
+const providers = {
+	"ytdlp": require("./providers/ytdlp"),
+}
+
+const domainsProviders = {
+	"youtube.com": "ytdlp",
+	"youtu.be": "ytdlp",
+}
 
 async function globalCheck(){
 	consola.info("Starting global checks...")
@@ -117,18 +127,27 @@ bot.on("message", async (ctx) => {
 	// If we reach this point, it means that the message is not a command
 	if(messageContent.startsWith("http://")) messageContent = messageContent.replace("http://", "https://") // we convert http links to https links
 	if(messageContent.startsWith("https://")){
-		consola.info(`Received a link: ${messageContent}`)
+		const url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]
+		consola.info(`Received a link: ${url}`)
 
 		// Check if the link is valid
-		try {
-			const url = new URL(messageContent)
-			if(!["http:", "https:"].includes(url.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed")
-		} catch (err) {
-			return ctx.reply("⚠️ | Invalid URL. Please send a valid HTTP or HTTPS link.").catch(err => catchErrors(err, ctx))
+		try { sanitizeUrl(url) } catch (err) {
+			return ctx.replyWithHTML("⚠️ | Invalid URL. To download something, you should send a valid link starting with <code>https://</code>.").catch(err => catchErrors(err, ctx))
 		}
 
-		// Here we would normally process the link with the providers
-		return ctx.reply(`🔗 | Link received: ${messageContent}`).catch(err => catchErrors(err, ctx))
+		// Get the domain of the URL
+		var domain = new URL(url).hostname.replace(/^www\./, "")
+		consola.info(`Domain extracted from the URL: ${domain}`)
+		if(domain == "youtu.be"){ // convert youtu.be links to youtube.com links
+			domain = "youtube.com"
+			url = url.replace("youtu.be/", "youtube.com/watch?v=")
+		}
+
+		// Check if the domain is supported and get the provider associated
+		const providerName = domainsProviders[domain]
+		if(!providerName) return ctx.replyWithHTML("⚠️ | Unsupported service. Use /start to get a better understanding of this bot.").catch(err => catchErrors(err, ctx))
+		const provider = providers[providerName]
+		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
 	}
 })
 

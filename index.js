@@ -1,9 +1,67 @@
 const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
+const { spawn } = require("child_process")
 require("dotenv").config()
 
-// TODO: check providers/ytdlp.js checkYtDlpInstalled()
-// TODO: check we can use fetch
+async function globalCheck(){
+	consola.info("Starting global checks...")
+	var fatal = []
+
+	// Check yt-dlp
+	await new Promise((resolve) => {
+		const child = spawn("yt-dlp", ["--version"])
+
+		var output = ""
+		var errorOutput = ""
+		child.stdout.on("data", (data) => { output += data.toString() })
+		child.stderr.on("data", (data) => { errorOutput += data.toString() })
+
+		child.on("close", (code) => {
+			if(code !== 0){
+				consola.error(`yt-dlp command failed with code ${code}`)
+				if(output.trim()) consola.log(`yt-dlp output: ${output}`)
+				if(errorOutput.trim()) consola.log(`yt-dlp error output: ${errorOutput.trim()}`)
+				fatal.push("Could not check the version of yt-dlp, this may be caused by yt-dlp not installed at all on the system, or not found in the PATH.")
+				return resolve(false)
+			}
+
+			if(!output.trim()){
+				consola.error("yt-dlp command returned no standard output. Please check if yt-dlp is installed correctly.")
+				if(errorOutput.trim()) consola.log(`yt-dlp error output: ${errorOutput.trim()}`)
+				fatal.push("yt-dlp is not giving us any informations when getting its version.")
+				return resolve(false)
+			}
+
+			if(!output.trim().match(/^\d+\.\d+\.\d+/)){
+				consola.error(`yt-dlp command returned unexpected output: "${output.trim()}". Expected a version number like "2025.06.30".`)
+				if(errorOutput.trim()) consola.log(`yt-dlp error output: ${errorOutput.trim()}`)
+				fatal.push("yt-dlp is not giving us a valid version number when getting its version.")
+				return resolve(false)
+			}
+
+			if(output.split(".")[0] != new Date().getFullYear()) consola.warn(`yt-dlp version is from the year ${output.split(".")[0]}, but the current year is ${new Date().getFullYear()}. You should consider updating yt-dlp if possible.`)
+
+			consola.success(`yt-dlp is installed, version: ${output.trim()}`)
+			resolve(true)
+		})
+
+		child.on("error", () => {
+		})
+	})
+
+	// Check Fetch API
+	if(!global.fetch){
+		consola.error("Fetch API is not available. This will cause issues with some providers. Please ensure you are using a recent NodeJS version (v22 or higher is recommended).")
+		fatal.push(process.versions.node > 21 ? "You need to update the version of NodeJS you are using to at least v22, as the Fetch API is not available in older versions." : "It seems your NodeJS version is recent enough, but we still recommend you to update if possible.")
+	}
+
+	if(fatal.length){
+		consola.error(`Fatal errors were found during global checks:\n${fatal.map(err => `- ${err}`).join("\n")}`)
+		return process.exit(1)
+	}
+
+	consola.success("Global checks completed successfully.")
+}
 
 function catchErrors(err, ctx){
 	consola.error("==============================================================\nAn error was catched: ", err)
@@ -21,11 +79,17 @@ function catchErrors(err, ctx){
 	consola.error("==============================================================")
 }
 
-// Start the bot
+// Main function (includes starting the bot)
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 9_000_000 })
-bot.launch().then(() => {
-	consola.success(`Connected as @${bot.botInfo.username}`) // it seems like, sometimes, this is not triggered even if the bot has launched successfully
-})
+async function main(){
+	await globalCheck()
+
+	consola.info("Starting the bot...")
+	bot.launch().then(() => {
+		consola.success(`Connected as @${bot.botInfo.username}`) // it seems like, sometimes, this is not triggered even if the bot has launched successfully
+	})
+}
+main()
 
 // When a new message is received
 bot.on("message", async (ctx) => {
@@ -51,7 +115,21 @@ bot.on("message", async (ctx) => {
 	}
 
 	// If we reach this point, it means that the message is not a command
-	consola.info(`The message (${ctx.message.message_id}) is not a command, it will be ignored.`)
+	if(messageContent.startsWith("http://")) messageContent = messageContent.replace("http://", "https://") // we convert http links to https links
+	if(messageContent.startsWith("https://")){
+		consola.info(`Received a link: ${messageContent}`)
+
+		// Check if the link is valid
+		try {
+			const url = new URL(messageContent)
+			if(!["http:", "https:"].includes(url.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed")
+		} catch (err) {
+			return ctx.reply("⚠️ | Invalid URL. Please send a valid HTTP or HTTPS link.").catch(err => catchErrors(err, ctx))
+		}
+
+		// Here we would normally process the link with the providers
+		return ctx.reply(`🔗 | Link received: ${messageContent}`).catch(err => catchErrors(err, ctx))
+	}
 })
 
 // Allow clean exit

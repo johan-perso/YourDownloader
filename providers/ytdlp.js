@@ -38,24 +38,6 @@ function cleanYtbUrl(url = "") {
  */
 
 /**
- * Check if yt-dlp is installed
- * @returns {Promise<boolean>}
- */
-async function check() {
-	return new Promise((resolve) => {
-		const ytdlp = spawn("yt-dlp", ["--version"])
-
-		ytdlp.on("close", (code) => {
-			resolve(code === 0)
-		})
-
-		ytdlp.on("error", () => {
-			resolve(false)
-		})
-	})
-}
-
-/**
  * Fetch details about a YouTube video without downloading it
  * @param {string} url - URL of the YouTube video
  * @returns {Promise<Object>}
@@ -255,7 +237,6 @@ async function download(url, options = {}) {
 }
 
 module.exports = {
-	check,
 	getDetails,
 	download,
 }

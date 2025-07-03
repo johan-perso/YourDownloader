@@ -2,6 +2,9 @@ const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
 require("dotenv").config()
 
+// TODO: check providers/ytdlp.js checkYtDlpInstalled()
+// TODO: check we can use fetch
+
 function catchErrors(err, ctx){
 	consola.error("==============================================================\nAn error was catched: ", err)
 	if(ctx){

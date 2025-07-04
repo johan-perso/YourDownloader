@@ -65,6 +65,49 @@ async function globalCheck(){
 		})
 	})
 
+	// Check ffmpeg
+	await new Promise((resolve) => {
+		const child = spawn("ffmpeg", ["-version"])
+
+		var output = ""
+		var errorOutput = ""
+		child.stdout.on("data", (data) => { output += data.toString() })
+		child.stderr.on("data", (data) => { errorOutput += data.toString() })
+
+		child.on("close", (code) => {
+			if(code !== 0){
+				consola.error(`ffmpeg command failed with code ${code}`)
+				if(output.trim()) consola.log(`ffmpeg output: ${output}`)
+				if(errorOutput.trim()) consola.log(`ffmpeg error output: ${errorOutput.trim()}`)
+				fatal.push("Could not check the version of ffmpeg, this may be caused by ffmpeg not installed at all on the system, or not found in the PATH.")
+				return resolve(false)
+			}
+
+			if(!output.trim()){
+				consola.error("ffmpeg command returned no standard output. Please check if ffmpeg is installed correctly.")
+				if(errorOutput.trim()) consola.log(`ffmpeg error output: ${errorOutput.trim()}`)
+				fatal.push("ffmpeg is not giving us any informations when getting its version.")
+				return resolve(false)
+			}
+
+			// ffmpeg version 7.1 Copyright (c) ...
+			var version = output.match(/ffmpeg version ([\d.]+)/)?.[1] || output.trim().split(" version ")?.[1]?.split(" ")?.[0]
+			if(version.length) version = version.trim()
+			if(!version.length){
+				consola.error(`ffmpeg command returned unexpected output: "${output.trim()}". Expected to find a version number with string similar to "ffmpeg version 7.1 ...".`)
+				if(errorOutput.trim()) consola.log(`ffmpeg error output: ${errorOutput.trim()}`)
+				fatal.push("ffmpeg is not giving us a valid version number when getting its version.")
+				return resolve(false)
+			}
+
+			consola.success(`ffmpeg is installed, version: ${version}`)
+			resolve(true)
+		})
+
+		child.on("error", () => {
+		})
+	})
+
 	// Check Fetch API
 	if(!global.fetch){
 		consola.error("Fetch API is not available. This will cause issues with some providers. Please ensure you are using a recent NodeJS version (v22 or higher is recommended).")

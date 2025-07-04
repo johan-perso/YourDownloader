@@ -1,8 +1,13 @@
 const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
 const { spawn } = require("child_process")
+const msPrettify = require("ms-prettify").default
+const { randomString } = require("./utils/random")
 const { sanitizeUrl } = require("./utils/sanitize")
+const convertFile = require("./utils/convertFile")
 require("dotenv").config()
+
+const requests = {}
 
 const providers = {
 	"ytdlp": require("./providers/ytdlp"),
@@ -76,6 +81,11 @@ function escapeHtml(text){
 	if(!text) return text
 	if(typeof text != "string") return text
 	return text?.replace(/&/g, "&amp;")?.replace(/</g, "&lt;")?.replace(/>/g, "&gt;")?.replace(/"/g, "&quot;")?.replace(/'/g, "&#039;")
+}
+function addSpaceEveryThreeChars(number) {
+	if (!number && number !== 0) return number
+	if (typeof number !== "number") return number
+	return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 }
 
 function catchErrors(err, ctx){
@@ -152,10 +162,10 @@ bot.on("message", async (ctx) => {
 		const providerName = domainsProviders[domain]
 		if(!providerName) return ctx.replyWithHTML("⚠️ | Unsupported service. Use /start to get a better understanding of this bot.").catch(err => catchErrors(err, ctx))
 		const provider = providers[providerName]
-		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx));
+		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.").catch(err => catchErrors(err, ctx));
 
 		(async () => {
-			const ctxReply = await ctx.replyWithHTML(`<b>🔍 | Searching details about this link using provider "${providerName}"</b>\n\nPlease wait, this may take a few seconds...`).catch(err => catchErrors(err, ctx))
+			const ctxReply = await ctx.replyWithHTML("<b>🔍 | Searching details about this link</b>\n\nPlease wait, this may take a few seconds...").catch(err => catchErrors(err, ctx))
 			if(!ctxReply){
 				consola.error("Failed to send the initial reply to the user, this could have caused issues later on.")
 				return
@@ -164,17 +174,109 @@ bot.on("message", async (ctx) => {
 			// Get details about the URL
 			consola.info(`Getting details for the URL: ${url} using provider: ${providerName}`)
 			var details = await provider.getDetails(url).catch(err => {
+				if(err?.message?.includes("404:")){
+					ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is in private mode / region locked.").catch(err => catchErrors(err, ctx))
+					return "silentStop"
+				}
+
 				catchErrors(err, ctx)
 				return null
 			})
 
+			if(details == "silentStop") return
 			if(!details){
 				ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | An error occured while getting details for this link. Please try again later.").catch(err => catchErrors(err, ctx))
 				return
 			}
-			console.log(details)
+
+			// Show details to the user, and ask for the format
+			// We will handle the download from the inline keyboard events
+			const requestId = randomString()
+			consola.info(`Request ID generated: ${requestId} for user ${ctx.from.id} with msg id ${ctxReply.message_id} and url ${url}`)
+			requests[requestId] = {
+				chatId: ctx.chat.id,
+				messageId: ctxReply.message_id,
+				url: url,
+				provider: providerName,
+				details: details,
+			}
+			ctx.telegram.editMessageText(
+				ctx.chat.id,
+				ctxReply.message_id,
+				null,
+				`<b>🔍 | Is that what you were looking for?</b>\n\n<b>Title:</b> ${escapeHtml(details?.title)}${details?.author?.length ? `\n<b>Author:</b> ${escapeHtml(details?.author)}` : ""}${details?.duration ? `\n<b>Duration:</b> ${msPrettify(details?.duration * 1000, { max: 2 })}` : ""}${details?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(details?.views)}` : ""}\n\n<i>Select the format you need to start the download, or send another link.</i>`,
+				{
+					parse_mode: "HTML",
+					link_preview_options: { is_disabled: true },
+					reply_markup: {
+						inline_keyboard: [
+							[
+								{ text: "🎵 MP3 - Audio", callback_data: `download_mp3_${requestId}` },
+								{ text: "🎬 MP4 - Video", callback_data: `download_mp4_${requestId}` }
+							]
+						]
+					}
+				}
+			).catch(err => catchErrors(err, ctx))
 		})().catch(err => catchErrors(err, ctx)) // we use an async function to handle the await inside without blocking the main thread
 	}
+})
+
+// When a user clicks on an inline keyboard button
+bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
+	const requestId = ctx.match[2]
+	const format = ctx.match[1]
+	consola.info(`User ${ctx.from.id} clicked on the download button for request ${requestId} with format ${format}`)
+
+	// Edit the message to delete the inline keyboard
+	try {
+		await ctx.editMessageReplyMarkup({ inline_keyboard: [] })
+	} catch (err) {
+		consola.error("Failed to edit the message reply markup, this could cause issues later on.")
+		catchErrors(err, ctx)
+	}
+
+	// Check if the request exists
+	if(!requests[requestId]) return ctx.answerCbQuery("This request is no longer available. Please send a new link to the bot.").catch(err => catchErrors(err, ctx))
+
+	const request = requests[requestId]
+	if(request.chatId != ctx.chat.id){
+		return ctx.answerCbQuery("❌ | This request was not sent to you.").catch(err => catchErrors(err, ctx))
+	}
+
+	// Get the provider and details
+	const provider = providers[request.provider]
+	if(!provider) return ctx.answerCbQuery("❌ | The provider associated to this video is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
+
+	// Start the download
+	var downloadedResponse
+	try {
+		ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | We're starting to download your file, it may take a few minutes.</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
+		downloadedResponse = await provider.download(request.url, { audioOnly: format === "mp3" })
+	} catch (err) {
+		catchErrors(err, ctx)
+	}
+
+	// If the download failed, we notify the user
+	if(downloadedResponse.error || !downloadedResponse.success || !downloadedResponse.filePath){
+		consola.error(`Download failed for request ${requestId} with error: ${downloadedResponse.error || "Unknown error"}`)
+		return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while downloading the file.</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(downloadedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+	}
+	ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | Finalizing your download...</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
+
+	// If the file isn't in the expected format, we convert it
+	if(!downloadedResponse.filePath.endsWith(`.${format}`)){
+		consola.info(`File is not in the user-expected format (${format}), we will convert it.`)
+		const oldFormat = downloadedResponse.filePath.split(".").pop()
+		const convertedResponse = await convertFile(downloadedResponse.filePath, format)
+		if(convertedResponse.error){
+			consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse.error || "Unknown error"}`)
+			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+		}
+		consola.success(`File converted successfully from ${oldFormat} to ${format}`)
+	}
+
+	// TODO: if file exceeds the max file size (1.5GB), we notify the user and one day we will implement a way to download the file through a URL
 })
 
 // Allow clean exit

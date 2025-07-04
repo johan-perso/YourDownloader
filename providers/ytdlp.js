@@ -67,7 +67,7 @@ async function getDetails(url) {
 		})
 
 		// If the webpage is not accessible, reject
-		if (!webpage || webpage.includes("404 Not Found") || webpage.includes("This video is unavailable") || webpage.includes("<title> - YouTube</title>")) return reject(new Error(`The URL is not accessible or the video could not be found: ${sanitizedUrl}`))
+		if (!webpage || webpage.includes("404 Not Found") || webpage.includes("This video is unavailable") || webpage.includes("<title> - YouTube</title>")) return reject(new Error(`404: The URL is not accessible or the video could not be found: ${sanitizedUrl}`))
 
 		const fallbackTitle = webpage.match(/<title>(.*?)<\/title>/)?.[1]?.trim() || "Unknown Title"
 
@@ -92,11 +92,11 @@ async function getDetails(url) {
 				const info = JSON.parse(output)
 				const parsedInfo = {
 					title: info?.title || fallbackTitle,
+					author: info?.uploader,
 					duration: info?.duration,
-					uploader: info?.uploader,
-					upload_date: info?.upload_date,
-					view_count: info?.view_count,
-					like_count: info?.like_count,
+					creationDate: info?.upload_date,
+					views: info?.view_count,
+					likes: info?.like_count,
 					// formats: info?.formats?.map(f => ({
 					// 	format_id: f.format_id,
 					// 	ext: f.ext,
@@ -121,10 +121,10 @@ async function getDetails(url) {
  */
 async function download(url, options = {}) {
 	const defaultOptions = {
-		format: "best",
-		quality: "best",
-		outputDir: "./temp",
-		filename: `${randomString(14)}.%(ext)s`, // Random filename with extension
+		format: "best", // do not use it when calling the function
+		quality: "best", // do not use it when calling the function
+		outputDir: "./temp", // do not use it when calling the function
+		filename: `${randomString()}.%(ext)s`, // Random filename with extension
 		audioOnly: false,
 		maxFileSize: 5000 // = 5 GB
 	}

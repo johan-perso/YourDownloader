@@ -150,13 +150,22 @@ function catchErrors(err, ctx){
 }
 
 // Main function (includes starting the bot)
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 9_000_000 })
+const bot = new Telegraf(
+	process.env.TELEGRAM_BOT_TOKEN,
+	{
+		handlerTimeout: 9_000_000,
+		telegram: {
+			apiRoot: "http://localhost:8081" // URL de ton serveur local
+		}
+	}
+)
 async function main(){
 	await globalCheck()
 
 	consola.info("Starting the bot...")
-	bot.launch().then(() => {
-		consola.success(`Connected as @${bot.botInfo.username}`) // it seems like, sometimes, this is not triggered even if the bot has launched successfully
+	consola.info("Telegram API Root:", bot.telegram.options.apiRoot)
+	bot.launch().then(() => { // it seems like, sometimes, this is not triggered even if the bot has launched successfully
+		consola.success(`Connected as @${bot.botInfo.username}`)
 	})
 }
 main()

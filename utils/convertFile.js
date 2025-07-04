@@ -12,7 +12,7 @@ const path = require("path")
  */
 function convertFile(inputPath, outputFormat) {
 	return new Promise((resolve) => {
-		const fromAudioToVideo = path.extname(inputPath) == ".mp3" && outputFormat == "mp4"
+		const fromAudioToVideo = (path.extname(inputPath) == ".mp3" || path.extname(inputPath) == ".m4a") && outputFormat == "mp4"
 		const parsedPath = path.parse(inputPath)
 		const outputPath = path.join(parsedPath.dir, `${parsedPath.name}.${outputFormat}`)
 

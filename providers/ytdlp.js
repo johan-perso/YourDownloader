@@ -5,6 +5,9 @@ const path = require("path")
 const { randomString } = require("../utils/random")
 const { sanitizeUrl, sanitizeOutputDir, sanitizeForTerminal } = require("../utils/sanitize")
 
+const NodeCache = require("node-cache")
+const ytdlpCache = new NodeCache({ stdTTL: 60 * 60 * 4 }) // Cache to 4 hours
+
 function cleanYtbUrl(url = "") {
 	if (!url) return ""
 	const urlObj = new URL(url)
@@ -44,6 +47,9 @@ function cleanYtbUrl(url = "") {
  */
 async function getDetails(url) {
 	return new Promise(async (resolve, reject) => {
+		if(!url || typeof url !== "string") return reject(new Error("Invalid URL provided"))
+		if (ytdlpCache.has(url)) return resolve(ytdlpCache.get(url))
+
 		// Sanitize the URL before using it
 		var sanitizedUrl
 		try {
@@ -84,7 +90,7 @@ async function getDetails(url) {
 
 			try {
 				const info = JSON.parse(output)
-				resolve({
+				const parsedInfo = {
 					title: info?.title || fallbackTitle,
 					duration: info?.duration,
 					uploader: info?.uploader,
@@ -97,7 +103,9 @@ async function getDetails(url) {
 					// 	quality: f.quality,
 					// 	filesize: f.filesize
 					// })) || []
-				})
+				}
+				ytdlpCache.set(url, parsedInfo)
+				resolve(parsedInfo)
 			} catch (error) {
 				reject(new Error(`Failed to parse metadata: ${error?.message || error}`))
 			}

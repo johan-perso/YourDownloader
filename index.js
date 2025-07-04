@@ -161,8 +161,11 @@ bot.on("message", async (ctx) => {
 		}
 
 		// Check if the domain is supported and get the provider associated
-		const providerName = domainsProviders[domain]
-		if(!providerName) return ctx.replyWithHTML("⚠️ | Unsupported service. Use /start to get a better understanding of this bot.").catch(err => catchErrors(err, ctx))
+		var providerName = domainsProviders[domain]
+		if(!providerName){
+			consola.warn("Using ytdlp provider as a fallback, it may not be supported")
+			providerName = "ytdlp"
+		}
 		const provider = providers[providerName]
 		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.").catch(err => catchErrors(err, ctx));
 
@@ -175,15 +178,20 @@ bot.on("message", async (ctx) => {
 
 			// Get details about the URL
 			consola.info(`Getting details for the URL: ${url} using provider: ${providerName}`)
-			var details = await provider.getDetails(url).catch(err => {
-				if(err?.message?.includes("404:")){
-					ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is in private mode / region locked.").catch(err => catchErrors(err, ctx))
-					return "silentStop"
-				}
+			var details
+			try {
+				details = await provider.getDetails(url).catch(err => {
+					if(err?.message?.includes("404:")){
+						ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is in private mode / region locked.").catch(err => catchErrors(err, ctx))
+						return "silentStop"
+					}
 
+					catchErrors(err, ctx)
+					return null
+				})
+			} catch (err) {
 				catchErrors(err, ctx)
-				return null
-			})
+			}
 
 			if(details == "silentStop") return
 			if(!details){
@@ -283,7 +291,8 @@ bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 
 	// Check file size
 	var fileSize = fs.statSync(downloadedResponse.filePath).size
-	if(fileSize > 1.5 * 1024 * 1024 * 1024){ // Telegram has 1.5 GB limit
+	consola.info(`File size for request ${requestId} is ${(fileSize / (1024 * 1024)).toFixed(2)} MB (${fileSize} bytes)`)
+	if(fileSize > 2 * 1024 * 1024 * 1024){ // Telegram has 2 GB limit when using local server
 		consola.warn(`File size is too large (${(fileSize / (1024 * 1024)).toFixed(2)} MB), we will notify the user.`)
 		return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | Your download exceed the Telegram file size limit (${(fileSize / (1024 * 1024)).toFixed(2)} MB / 1.5 GB).</b>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake.`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 	}

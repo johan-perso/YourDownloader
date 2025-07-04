@@ -120,11 +120,12 @@ async function getDetails(url) {
  * @returns {Promise<DownloadResult>}
  */
 async function download(url, options = {}) {
+	const fileId = randomString()
 	const defaultOptions = {
 		format: "best", // do not use it when calling the function
 		quality: "best", // do not use it when calling the function
 		outputDir: "./temp", // do not use it when calling the function
-		filename: `${randomString()}.%(ext)s`, // Random filename with extension
+		filename: `${fileId}.%(ext)s`, // Random filename with extension
 		audioOnly: false,
 		maxFileSize: 5000 // = 5 GB
 	}
@@ -192,18 +193,26 @@ async function download(url, options = {}) {
 				if (code === 0) {
 					try {
 						// Search for the downloaded file
-						if (!downloadedFilePath) {
-							const files = fs.readdirSync(sanitizedOutputDir)
-								.filter(f => f.endsWith(".mp4") || f.endsWith(".mp3") || f.endsWith(".webm"))
-								.map(f => ({
-									name: f,
-									path: path.join(sanitizedOutputDir, f),
-									stats: fs.statSync(path.join(sanitizedOutputDir, f))
-								}))
-								.sort((a, b) => b.stats.mtime - a.stats.mtime)
+						const fileExtension = opts.audioOnly ? ".mp3" : ".mp4"
+						const files = fs.readdirSync(sanitizedOutputDir)
+							.filter(f => f.startsWith(fileId))
+							.sort((a, b) => { // Sort by extension to prioritize exact matches
+								const extA = path.extname(a).toLowerCase()
+								const extB = path.extname(b).toLowerCase()
+								const isExactA = extA === fileExtension
+								const isExactB = extB === fileExtension
+								if (isExactA && !isExactB) return -1
+								if (!isExactA && isExactB) return 1
+								return 0 // Keep original order if both are exact or neither is
+							})
 
-							if (files.length > 0) downloadedFilePath = files[0].path
-						}
+						if (files.length == 0) resolve({
+							success: false,
+							error: "Unable to find the downloaded file"
+						})
+
+						if(files.length > 1 && files.find(f => f === `${fileId}${fileExtension}`)) downloadedFilePath = path.join(sanitizedOutputDir, `${fileId}${fileExtension}`)
+						else downloadedFilePath = path.join(sanitizedOutputDir, files[0]) // Else, just use the first file found
 
 						if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
 							consola.success(`ytdlp: Finished downloading: ${downloadedFilePath}`)
@@ -212,12 +221,10 @@ async function download(url, options = {}) {
 								filePath: downloadedFilePath,
 								filename: path.basename(downloadedFilePath)
 							})
-						} else {
-							resolve({
-								success: false,
-								error: "Unable to find the downloaded file"
-							})
-						}
+						} else resolve({
+							success: false,
+							error: "File has been located but seems to not exist on the disk"
+						})
 					} catch (error) {
 						resolve({
 							success: false,

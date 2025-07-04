@@ -1,7 +1,9 @@
+const fs = require("fs")
+const path = require("path")
+const msPrettify = require("ms-prettify").default
 const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
 const { spawn } = require("child_process")
-const msPrettify = require("ms-prettify").default
 const { randomString } = require("./utils/random")
 const { sanitizeUrl } = require("./utils/sanitize")
 const convertFile = require("./utils/convertFile")
@@ -142,7 +144,7 @@ bot.on("message", async (ctx) => {
 	// If we reach this point, it means that the message is not a command
 	if(messageContent.startsWith("http://")) messageContent = messageContent.replace("http://", "https://") // we convert http links to https links
 	if(messageContent.startsWith("https://")){
-		const url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]
+		var url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]
 		consola.info(`Received a link: ${url}`)
 
 		// Check if the link is valid
@@ -268,15 +270,65 @@ bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 	if(!downloadedResponse.filePath.endsWith(`.${format}`)){
 		consola.info(`File is not in the user-expected format (${format}), we will convert it.`)
 		const oldFormat = downloadedResponse.filePath.split(".").pop()
+
 		const convertedResponse = await convertFile(downloadedResponse.filePath, format)
-		if(convertedResponse.error){
-			consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse.error || "Unknown error"}`)
-			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+		if(!convertedResponse.success || convertedResponse.error){
+			consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse?.error || "Unknown error"}`)
+			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse?.error || "Unknown error")?.substring(0, 500)}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 		}
+
+		downloadedResponse.filePath = convertedResponse.filePath // Update file path to the new one
 		consola.success(`File converted successfully from ${oldFormat} to ${format}`)
 	}
 
-	// TODO: if file exceeds the max file size (1.5GB), we notify the user and one day we will implement a way to download the file through a URL
+	// Check file size
+	var fileSize = fs.statSync(downloadedResponse.filePath).size
+	if(fileSize > 1.5 * 1024 * 1024 * 1024){ // Telegram has 1.5 GB limit
+		consola.warn(`File size is too large (${(fileSize / (1024 * 1024)).toFixed(2)} MB), we will notify the user.`)
+		return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | Your download exceed the Telegram file size limit (${(fileSize / (1024 * 1024)).toFixed(2)} MB / 1.5 GB).</b>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake.`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+	}
+
+	// Send the file to the user
+	const details = request?.details || {}
+	var fileName = `${details?.title?.length ? details?.title : ""}${details?.title?.length && details?.author?.length ? " - " : ""}${details?.author?.length ? details?.author : ""}`
+	if(!fileName.length) fileName = downloadedResponse.filename || `downloaded_file.${format}`
+	fileName = fileName.replace(/[^a-zA-Z0-9_\- ]/g, "_").substring(0, 100) // Sanitize the file name and limit it to 100 characters
+	consola.info(`Sending the file to the user with file name: ${fileName}`)
+
+	try {
+		await ctx.persistentChatAction( // Send a chat action as long as the subsequent action is not completed
+			format == "mp4" ? "upload_video" : format == "mp3" ? "upload_voice" : "upload_document",
+			async () => {
+				// Send the file
+				await ctx[format == "mp4" ? "replyWithVideo" : format == "mp3" ? "replyWithAudio" : "replyWithDocument"]({
+					source: downloadedResponse.filePath,
+					filename: fileName + (format == "mp4" ? ".mp4" : format == "mp3" ? ".mp3" : ""),
+				}, {
+					title: details?.title || "Your downloaded file",
+					performer: details?.author || undefined,
+					caption: `<b>📥 | Here is your download!</b>\n\n<b>Title:</b> ${escapeHtml(details?.title)}${details?.author?.length ? `\n<b>Author:</b> ${escapeHtml(details?.author)}` : ""}${details?.duration ? `\n<b>Duration:</b> ${msPrettify(details?.duration * 1000, { max: 2 })}` : ""}${details?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(details?.views)}` : ""}`,
+					parse_mode: "HTML",
+					link_preview_options: { is_disabled: true }
+				})
+
+				// Delete original response
+				await ctx.telegram.deleteMessage(request.chatId, request.messageId).catch(err => { consola.warn(`Failed to delete the original message for request ${requestId}:`, err) })
+			}
+		).catch(err => catchErrors(err, ctx))
+	} catch (err) {
+		consola.error("Failed to send the file to the user, this could have caused issues later on.")
+		catchErrors(err, ctx)
+	}
+
+	// Finally, we delete the file from the disk
+	consola.info(`Request ${requestId} completed successfully, file sent to user ${ctx.from.id}.`)
+	delete requests[requestId]
+	try {
+		fs.unlinkSync(downloadedResponse.filePath)
+		consola.info(`File "${downloadedResponse.filePath}" associated to request ${requestId} deleted from disk.`)
+	} catch (err) {
+		consola.error(`Failed to delete the file "${downloadedResponse.filePath}" associated to request ${requestId} from disk:`, err)
+	}
 })
 
 // Allow clean exit

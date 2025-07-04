@@ -7,7 +7,6 @@ require("dotenv").config()
 const providers = {
 	"ytdlp": require("./providers/ytdlp"),
 }
-
 const domainsProviders = {
 	"youtube.com": "ytdlp",
 	"youtu.be": "ytdlp",
@@ -73,6 +72,12 @@ async function globalCheck(){
 	consola.success("Global checks completed successfully.")
 }
 
+function escapeHtml(text){
+	if(!text) return text
+	if(typeof text != "string") return text
+	return text?.replace(/&/g, "&amp;")?.replace(/</g, "&lt;")?.replace(/>/g, "&gt;")?.replace(/"/g, "&quot;")?.replace(/'/g, "&#039;")
+}
+
 function catchErrors(err, ctx){
 	consola.error("==============================================================\nAn error was catched: ", err)
 	if(ctx){
@@ -81,7 +86,7 @@ function catchErrors(err, ctx){
 		consola.log(`We will try to tell the user about this error, with the code "${randomCode}"`)
 
 		try {
-			ctx.replyWithHTML(`<b>🔴 | An error occured while processing your message</b>\n\nPlease report this problem to the <a href="https://t.me/JohanStick">bot owner</a> with the code <code>${randomCode}</code> so he can access some details.\nYou can also open a new issue on <a href="https://github.com/johan-perso/yourdownloader/issues/new">GitHub</a>.`, { link_preview_options: { is_disabled: true } }).catch(err => consola.error("Couldn't sent the error report to the user: ", err))
+			ctx.replyWithHTML(`<b>🔴 | An error occured while processing your message</b>\n\nPlease report this problem to the <a href="https://t.me/JohanStick">bot owner</a> with the code <code>${randomCode}</code> so he can access some details.\nYou can also open a new issue on <a href="https://github.com/johan-perso/yourdownloader/issues/new">GitHub</a>.\n\n<pre>${escapeHtml(err?.message || err?.stack || err)}\n</pre>`, { link_preview_options: { is_disabled: true } }).catch(err => consola.error("Couldn't sent the error report to the user: ", err))
 		} catch (err) {
 			consola.error("Couldn't sent the error report to the user: ", err)
 		}
@@ -110,10 +115,10 @@ bot.on("message", async (ctx) => {
 	if(dateMsg < dateNow - 120000) return consola.info(`Ignoring the new message (${ctx.message.message_id}): it was sent a long time ago, msg date = ${new Date(dateMsg).toLocaleTimeString()} (${dateMsg}) ; now: ${new Date(dateNow).toLocaleTimeString()} (${dateNow})`) // we reject messages older than 2 minutes
 	if(!ctx.message.text) return consola.info(`Ignoring the new message (${ctx.message.message_id}): it has no text`) // we reject messages without text
 
-	var messageContent = ctx.message.text.toLowerCase().trim() // properly get the message content
+	var messageContent = ctx.message.text.trim() // properly get the message content
 
 	// Commands
-	switch(messageContent){
+	switch(messageContent.toLowerCase()){
 	case "/crashtest":
 		return ctx.reply("").catch(err => catchErrors(err, ctx))
 	case "/start":
@@ -147,7 +152,28 @@ bot.on("message", async (ctx) => {
 		const providerName = domainsProviders[domain]
 		if(!providerName) return ctx.replyWithHTML("⚠️ | Unsupported service. Use /start to get a better understanding of this bot.").catch(err => catchErrors(err, ctx))
 		const provider = providers[providerName]
-		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
+		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx));
+
+		(async () => {
+			const ctxReply = await ctx.replyWithHTML(`<b>🔍 | Searching details about this link using provider "${providerName}"</b>\n\nPlease wait, this may take a few seconds...`).catch(err => catchErrors(err, ctx))
+			if(!ctxReply){
+				consola.error("Failed to send the initial reply to the user, this could have caused issues later on.")
+				return
+			}
+
+			// Get details about the URL
+			consola.info(`Getting details for the URL: ${url} using provider: ${providerName}`)
+			var details = await provider.getDetails(url).catch(err => {
+				catchErrors(err, ctx)
+				return null
+			})
+
+			if(!details){
+				ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | An error occured while getting details for this link. Please try again later.").catch(err => catchErrors(err, ctx))
+				return
+			}
+			console.log(details)
+		})().catch(err => catchErrors(err, ctx)) // we use an async function to handle the await inside without blocking the main thread
 	}
 })
 

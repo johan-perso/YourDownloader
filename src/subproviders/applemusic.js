@@ -17,9 +17,9 @@ async function getDetails(url) {
 		if(!webpage || !webpage.trim().length) return reject(new Error("The webpage content is empty or invalid"))
 
 		var details = {
-			"title": webpage?.split("<meta name=\"apple:title\" content=\"")[1]?.split("\">")[0] || webpage?.split("\"@type\":\"MusicComposition\",\"name\":\"")[1]?.split("\",\"")[0] || "",
-			"author": webpage?.split("\"byArtist\":[{\"@type\":\"MusicGroup\",\"name\":\"")[1]?.split("\",\"")[0] || "",
-			"duration": parseFloat(webpage?.replace(/\n/g, "")?.replace(/\t/g, "")?.replace(/ /g, "")?.split("\"tertiaryLinks\":null,\"duration\":")[1]?.split(",\"")[0] || webpage?.split(",\"duration\":\"")[1]?.split(",\"")[0] || "0") / 1000,
+			"title": webpage?.split("<meta name=\"apple:title\" content=\"")?.[1]?.split("\">")?.[0] || webpage?.split("\"@type\":\"MusicComposition\",\"name\":\"")?.[1]?.split("\",\"")?.[0] || "",
+			"author": webpage?.split("\"byArtist\":[{\"@type\":\"MusicGroup\",\"name\":\"")?.[1]?.split("\",\"")?.[0] || "",
+			"duration": parseFloat(webpage?.replace(/\n/g, "")?.replace(/\t/g, "")?.replace(/ /g, "")?.split("\"tertiaryLinks\":null,\"duration\":")?.[1]?.split(",\"")?.[0] || webpage?.split(",\"duration\":\"")?.[1]?.split(",\"")?.[0] || "0") / 1000,
 			"find": {
 				"provider": "ytdlp",
 				"platform": "youtube",
@@ -36,11 +36,9 @@ async function getDetails(url) {
 		try {
 			var serializedServerData = webpage?.split("<script type=\"application/json\" id=\"serialized-server-data\">[")[1]?.split("]</script>")[0]
 			var parsedData = JSON.parse(serializedServerData)
-			console.log(parsedData)
 
 			var track = {}
 			if(parsedData) track = parsedData?.data?.sections?.find(section => section?.id?.includes("track-list"))?.items?.find(track => track?.title == details?.title)
-			console.log(track)
 			details.duration = (track?.duration / 1000) || details?.duration
 		} catch (err) {}
 

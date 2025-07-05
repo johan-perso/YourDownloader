@@ -211,279 +211,285 @@ bot.on("message", async (ctx) => {
 
 	// If we reach this point, it means that the message is not a command
 	if(messageContent.startsWith("http://")) messageContent = messageContent.replace("http://", "https://") // we convert http links to https links
-	if(messageContent.startsWith("https://")){
-		var url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]
-		consola.info(`Received a link: ${url}`)
+	if(!messageContent.startsWith("https://")) return ctx.reply("⚠️ | Invalid message. Please use /start to get more details about this bot.").catch(err => catchErrors(err, ctx))
 
-		// Check if the link is valid
-		try { sanitizeUrl(url) } catch (err) {
-			return ctx.replyWithHTML("⚠️ | Invalid URL. To download something, you should send a valid link starting with <code>https://</code>.").catch(err => catchErrors(err, ctx))
+	var url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]
+	consola.info(`Received a link: ${url}`)
+
+	// Check if the link is valid
+	try { sanitizeUrl(url) } catch (err) {
+		return ctx.replyWithHTML("⚠️ | Invalid URL. To download something, you should send a valid link starting with <code>https://</code>.").catch(err => catchErrors(err, ctx))
+	}
+
+	// Get the domain of the URL
+	var domain = new URL(url).hostname.replace(/^www\./, "")
+	consola.info(`Domain extracted from the URL: ${domain}`)
+	if(domain == "youtu.be"){ // convert youtu.be links to youtube.com links
+		domain = "youtube.com"
+		url = url.replace("youtu.be/", "youtube.com/watch?v=")
+	}
+
+	(async () => {
+		const ctxReply = await ctx.replyWithHTML("<b>🔍 | Searching details about this link</b>\n\nPlease wait, this may take a few seconds...").catch(err => catchErrors(err, ctx))
+		if(!ctxReply){
+			consola.error("Failed to send the initial reply to the user, this could have caused issues later on.")
+			return
 		}
 
-		// Get the domain of the URL
-		var domain = new URL(url).hostname.replace(/^www\./, "")
-		consola.info(`Domain extracted from the URL: ${domain}`)
-		if(domain == "youtu.be"){ // convert youtu.be links to youtube.com links
-			domain = "youtube.com"
-			url = url.replace("youtu.be/", "youtube.com/watch?v=")
-		}
+		// If domain is supported by a subprovider
+		var subproviderName = domainsSubproviders[domain]
+		if(subproviderName){
+			consola.info(`Using subprovider ${subproviderName}`)
+			const subprovider = subproviders[subproviderName]
+			if(!subprovider) return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "⚠️ | The subprovider for this domain is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.", { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 
-		(async () => {
-			const ctxReply = await ctx.replyWithHTML("<b>🔍 | Searching details about this link</b>\n\nPlease wait, this may take a few seconds...").catch(err => catchErrors(err, ctx))
-			if(!ctxReply){
-				consola.error("Failed to send the initial reply to the user, this could have caused issues later on.")
+			// Get details from the subprovider to know where to search
+			var whereToSearch
+			try {
+				whereToSearch = await subprovider.getDetails(url).catch(err => { return { success: false, error: err } })
+			} catch (err) { catchErrors(err, ctx) }
+			if(!whereToSearch?.find?.query || whereToSearch.error || whereToSearch.message || !whereToSearch.success){
+				ctx.telegram.editMessageText(
+					ctx.chat.id,
+					ctxReply.message_id,
+					null,
+					whereToSearch?.message?.includes("404:")
+						? "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is region locked."
+						: `🔴 | ${whereToSearch?.message || whereToSearch?.error || whereToSearch || "An error occured while getting details for this link. Please try again later."}`
+				).catch(err => catchErrors(err, ctx))
 				return
 			}
 
-			// If domain is supported by a subprovider
-			var subproviderName = domainsSubproviders[domain]
-			if(subproviderName){
-				consola.info(`Using subprovider ${subproviderName}`)
-				const subprovider = subproviders[subproviderName]
-				if(!subprovider) return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "⚠️ | The subprovider for this domain is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.", { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			// Edit message to show where we will search
+			consola.info(`Details for the URL: ${url} using subprovider: ${subproviderName}`, whereToSearch)
+			await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔍 | Searching on ${whereToSearch.find.platformName}...</b>\n\n<b>Title:</b> ${escapeHtml(whereToSearch?.title)}${whereToSearch?.author?.length ? `\n<b>Author:</b> ${escapeHtml(whereToSearch?.author)}` : ""}${whereToSearch?.duration ? `\n<b>Duration:</b> ${msPrettify(whereToSearch?.duration * 1000, { max: 2 })}` : ""}${whereToSearch?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(whereToSearch?.views)}` : ""}\n\n<i>We can't directly download from this service, we will try to search it on another platform.</i>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 
-				// Get details from the subprovider to know where to search
-				var whereToSearch
-				try {
-					whereToSearch = await subprovider.getDetails(url).catch(err => { return { success: false, error: err } })
-				} catch (err) { catchErrors(err, ctx) }
-				if(!whereToSearch?.find?.query || whereToSearch.error || whereToSearch.message || !whereToSearch.success){
-					ctx.telegram.editMessageText(
-						ctx.chat.id,
-						ctxReply.message_id,
-						null,
-						whereToSearch?.message?.includes("404:")
-							? "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is region locked."
-							: `🔴 | ${whereToSearch?.message || whereToSearch?.error || whereToSearch || "An error occured while getting details for this link. Please try again later."}`
-					).catch(err => catchErrors(err, ctx))
-					return
+			// Search with the provided query
+			var foundResultWithSearch = false
+			var searchErrors = []
+			for(const query of whereToSearch.find.query){
+				consola.info(`Searching on ${whereToSearch.find.platform} with query: ${query}`)
+				if(!searchPlatforms[whereToSearch.find.platform]){
+					var reason = `Search platform with id ${whereToSearch.find.platform} is not supported, skipping...`
+					consola.warn(reason)
+					searchErrors.push(reason)
+					continue
 				}
 
-				// Edit message to show where we will search
-				consola.info(`Details for the URL: ${url} using subprovider: ${subproviderName}`, whereToSearch)
-				await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔍 | Searching on ${whereToSearch.find.platformName}...</b>\n\n<b>Title:</b> ${escapeHtml(whereToSearch?.title)}${whereToSearch?.author?.length ? `\n<b>Author:</b> ${escapeHtml(whereToSearch?.author)}` : ""}${whereToSearch?.duration ? `\n<b>Duration:</b> ${msPrettify(whereToSearch?.duration * 1000, { max: 2 })}` : ""}${whereToSearch?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(whereToSearch?.views)}` : ""}\n\n<i>We can't directly download from this service, we will try to search it on another platform.</i>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-
-				// Search with the provided query
-				var foundResultWithSearch = false
-				var searchErrors = []
-				for(const query of whereToSearch.find.query){
-					consola.info(`Searching on ${whereToSearch.find.platform} with query: ${query}`)
-					if(!searchPlatforms[whereToSearch.find.platform]){
-						var reason = `Search platform with id ${whereToSearch.find.platform} is not supported, skipping...`
-						consola.warn(reason)
+				var searchResult
+				try {
+					searchResult = await searchPlatforms[whereToSearch.find.platform].search(query, 1).catch(err => {
+						return { success: false, error: err }
+					})
+					if(!searchResult?.success || !searchResult?.url?.length || searchResult?.error){
+						var reason = `Failed to search "${query}" on ${whereToSearch.find.platform}: ${searchResult?.error || searchResult}`
+						consola.error(reason)
 						searchErrors.push(reason)
 						continue
 					}
-
-					var searchResult
-					try {
-						searchResult = await searchPlatforms[whereToSearch.find.platform].search(query, 1).catch(err => {
-							return { success: false, error: err }
-						})
-						if(!searchResult?.success || !searchResult?.url?.length || searchResult?.error){
-							var reason = `Failed to search "${query}" on ${whereToSearch.find.platform}: ${searchResult?.error || searchResult}`
-							consola.error(reason)
-							searchErrors.push(reason)
-							continue
-						}
-					} catch (err) {
-						catchErrors(err, ctx)
-					}
-
-					// If we found a result, we can use it
-					if(searchResult.url){
-						consola.info(`Found a result for the query "${query}" on platform "${whereToSearch.find.platform}":`, searchResult)
-						foundResultWithSearch = true
-						url = searchResult.url
-						domain = new URL(url).hostname.replace(/^www\./, "")
-						consola.info(`Using the found URL: ${url} with domain: ${domain}`)
-						break // we found a result, we can stop searching
-					}
-
-					searchErrors.push(`No results found for "${query}"`)
-				}
-
-				if(!url || !domain || !foundResultWithSearch){
-					consola.error("No valid URL found after searching with the subprovider data, we will stop here.")
-					if(searchErrors.length) consola.error(`Search errors: ${searchErrors.join(", ")}`)
-					return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔴 | We couldn't find any valid URL to download from.</b>\n\n<pre>- ${escapeHtml(searchErrors.join("\n- "))}</pre>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-				}
-
-				consola.info(`Using the URL: ${url} with domain: ${domain} after searching with the subprovider data`)
-				await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔍 | We found something, gathering data about it...</b>\n\n<b>Title:</b> ${escapeHtml(whereToSearch?.title)}${whereToSearch?.author?.length ? `\n<b>Author:</b> ${escapeHtml(whereToSearch?.author)}` : ""}${whereToSearch?.duration ? `\n<b>Duration:</b> ${msPrettify(whereToSearch?.duration * 1000, { max: 2 })}` : ""}${whereToSearch?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(whereToSearch?.views)}` : ""}\n\n<i>We can't directly download from this service, we will try to search it on another platform.</i>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-			}
-
-			// Check if the domain is supported and get the provider associated
-			var providerName = domainsProviders[domain]
-			if(!providerName){
-				consola.warn("Using ytdlp provider as a fallback, it may not be supported")
-				providerName = "ytdlp"
-			}
-			const provider = providers[providerName]
-			if(!provider) return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "⚠️ | The provider for this domain is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.", { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-
-			// Get details about the URL
-			consola.info(`Getting details for the URL: ${url} using provider: ${providerName}`)
-			var details
-			try {
-				details = await provider.getDetails(url).catch(err => {
-					if(err?.message?.includes("404:")){
-						ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is in private mode / region locked.").catch(err => catchErrors(err, ctx))
-						return "silentStop"
-					}
-
+				} catch (err) {
 					catchErrors(err, ctx)
-					return null
-				})
-			} catch (err) {
-				catchErrors(err, ctx)
-			}
-
-			if(details == "silentStop") return
-			if(!details){
-				ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | An error occured while getting details for this link. Please try again later.").catch(err => catchErrors(err, ctx))
-				return
-			}
-
-			// Show details to the user, and ask for the format
-			// We will handle the download from the inline keyboard events
-			const requestId = randomString()
-			consola.info(`Request ID generated: ${requestId} for user ${ctx.from.id} with msg id ${ctxReply.message_id} and url ${url}`)
-			requests[requestId] = {
-				chatId: ctx.chat.id,
-				messageId: ctxReply.message_id,
-				url: url,
-				provider: providerName,
-				details: details,
-			}
-			ctx.telegram.editMessageText(
-				ctx.chat.id,
-				ctxReply.message_id,
-				null,
-				`<b>🔍 | Is that what you were looking for?</b>\n\n<b>Title:</b> ${escapeHtml(details?.title)}${details?.author?.length ? `\n<b>Author:</b> ${escapeHtml(details?.author)}` : ""}${details?.duration ? `\n<b>Duration:</b> ${msPrettify(details?.duration * 1000, { max: 2 })}` : ""}${details?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(details?.views)}` : ""}\n\n<i>Select the format you need to start the download, or send another link.</i>`,
-				{
-					parse_mode: "HTML",
-					link_preview_options: { is_disabled: true },
-					reply_markup: {
-						inline_keyboard: [
-							[
-								{ text: "🎵 MP3 - Audio", callback_data: `download_mp3_${requestId}` },
-								{ text: "🎬 MP4 - Video", callback_data: `download_mp4_${requestId}` }
-							]
-						]
-					}
 				}
-			).catch(err => catchErrors(err, ctx))
-		})().catch(err => catchErrors(err, ctx)) // we use an async function to handle the await inside without blocking the main thread
-	}
+
+				// If we found a result, we can use it
+				if(searchResult.url){
+					consola.info(`Found a result for the query "${query}" on platform "${whereToSearch.find.platform}":`, searchResult)
+					foundResultWithSearch = true
+					url = searchResult.url
+					domain = new URL(url).hostname.replace(/^www\./, "")
+					consola.info(`Using the found URL: ${url} with domain: ${domain}`)
+					break // we found a result, we can stop searching
+				}
+
+				searchErrors.push(`No results found for "${query}"`)
+			}
+
+			if(!url || !domain || !foundResultWithSearch){
+				consola.error("No valid URL found after searching with the subprovider data, we will stop here.")
+				if(searchErrors.length) consola.error(`Search errors: ${searchErrors.join(", ")}`)
+				return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔴 | We couldn't find any valid URL to download from.</b>\n\n<pre>- ${escapeHtml(searchErrors.join("\n- "))}</pre>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			}
+
+			consola.info(`Using the URL: ${url} with domain: ${domain} after searching with the subprovider data`)
+			await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔍 | We found something, gathering data about it...</b>\n\n<b>Title:</b> ${escapeHtml(whereToSearch?.title)}${whereToSearch?.author?.length ? `\n<b>Author:</b> ${escapeHtml(whereToSearch?.author)}` : ""}${whereToSearch?.duration ? `\n<b>Duration:</b> ${msPrettify(whereToSearch?.duration * 1000, { max: 2 })}` : ""}${whereToSearch?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(whereToSearch?.views)}` : ""}\n\n<i>We can't directly download from this service, we will try to search it on another platform.</i>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+		}
+
+		// Check if the domain is supported and get the provider associated
+		var providerName = domainsProviders[domain]
+		if(!providerName){
+			consola.warn("Using ytdlp provider as a fallback, it may not be supported")
+			providerName = "ytdlp"
+		}
+		const provider = providers[providerName]
+		if(!provider) return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "⚠️ | The provider for this domain is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.", { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+
+		// Get details about the URL
+		consola.info(`Getting details for the URL: ${url} using provider: ${providerName}`)
+		var details
+		try {
+			details = await provider.getDetails(url).catch(err => {
+				if(err?.message?.includes("404:")){
+					ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is in private mode / region locked.").catch(err => catchErrors(err, ctx))
+					return "silentStop"
+				}
+
+				catchErrors(err, ctx)
+				return null
+			})
+		} catch (err) {
+			catchErrors(err, ctx)
+		}
+
+		if(details == "silentStop") return
+		if(!details){
+			ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "🔴 | An error occured while getting details for this link. Please try again later.").catch(err => catchErrors(err, ctx))
+			return
+		}
+
+		// Show details to the user, and ask for the format
+		// We will handle the download from the inline keyboard events
+		const requestId = randomString()
+		consola.info(`Request ID generated: ${requestId} for user ${ctx.from.id} with msg id ${ctxReply.message_id} and url ${url}`)
+		requests[requestId] = {
+			chatId: ctx.chat.id,
+			messageId: ctxReply.message_id,
+			url: url,
+			provider: providerName,
+			details: details,
+		}
+		ctx.telegram.editMessageText(
+			ctx.chat.id,
+			ctxReply.message_id,
+			null,
+			`<b>🔍 | Is that what you were looking for?</b>\n\n<b>Title:</b> ${escapeHtml(details?.title)}${details?.author?.length ? `\n<b>Author:</b> ${escapeHtml(details?.author)}` : ""}${details?.duration ? `\n<b>Duration:</b> ${msPrettify(details?.duration * 1000, { max: 2 })}` : ""}${details?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(details?.views)}` : ""}\n\n<i>Select the format you need to start the download, or send another link.</i>`,
+			{
+				parse_mode: "HTML",
+				link_preview_options: { is_disabled: true },
+				reply_markup: {
+					inline_keyboard: [
+						[
+							{ text: "🎵 MP3 - Audio", callback_data: `download_mp3_${requestId}` },
+							{ text: "🎬 MP4 - Video", callback_data: `download_mp4_${requestId}` }
+						]
+					]
+				}
+			}
+		).catch(err => catchErrors(err, ctx))
+	})().catch(err => catchErrors(err, ctx)) // we use an async function to handle the await inside without blocking the main thread
 })
 
 // When a user clicks on an inline keyboard button
 bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 	const requestId = ctx.match[2]
 	const format = ctx.match[1]
-	consola.info(`User ${ctx.from.id} clicked on the download button for request ${requestId} with format ${format}`)
+	consola.info(`User ${ctx.from.id} clicked on the download button for request ${requestId} with format ${format}`);
 
-	// Edit the message to delete the inline keyboard
-	try {
-		await ctx.editMessageReplyMarkup({ inline_keyboard: [] })
-	} catch (err) {
-		consola.error("Failed to edit the message reply markup, this could cause issues later on.")
-		catchErrors(err, ctx)
-	}
-
-	// Check if the request exists
-	if(!requests[requestId]) return ctx.answerCbQuery("This request is no longer available. Please send a new link to the bot.").catch(err => catchErrors(err, ctx))
-
-	const request = requests[requestId]
-	if(request.chatId != ctx.chat.id){
-		return ctx.answerCbQuery("❌ | This request was not sent to you.").catch(err => catchErrors(err, ctx))
-	}
-
-	// Get the provider and details
-	const provider = providers[request.provider]
-	if(!provider) return ctx.answerCbQuery("❌ | The provider associated to this video is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
-
-	// Start the download
-	var downloadedResponse
-	try {
-		ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | We're starting to download your file, it may take a few minutes.</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
-		downloadedResponse = await provider.download(request.url, { audioOnly: format === "mp3" })
-	} catch (err) {
-		catchErrors(err, ctx)
-	}
-
-	// If the download failed, we notify the user
-	if(downloadedResponse.error || !downloadedResponse.success || !downloadedResponse.filePath){
-		consola.error(`Download failed for request ${requestId} with error: ${downloadedResponse.error || "Unknown error"}`)
-		return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while downloading the file.</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(downloadedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-	}
-	ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | Finalizing your download...</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
-
-	// If the file isn't in the expected format, we convert it
-	if(!downloadedResponse.filePath.endsWith(`.${format}`)){
-		consola.info(`File is not in the user-expected format (${format}), we will convert it.`)
-		const oldFormat = downloadedResponse.filePath.split(".").pop()
-
-		const convertedResponse = await convertFile(downloadedResponse.filePath, format)
-		if(!convertedResponse.success || convertedResponse.error){
-			consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse?.error || "Unknown error"}`)
-			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse?.error || "Unknown error")?.substring(0, 500)}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+	(async () => {
+		// Edit the message to delete the inline keyboard
+		try {
+			await ctx.editMessageReplyMarkup({ inline_keyboard: [] })
+		} catch (err) {
+			consola.error("Failed to edit the message reply markup, this could cause issues later on.")
+			catchErrors(err, ctx)
 		}
 
-		downloadedResponse.filePath = convertedResponse.filePath // Update file path to the new one
-		consola.success(`File converted successfully from ${oldFormat} to ${format}`)
-	}
+		// Check if the request exists
+		if(!requests[requestId]) return ctx.answerCbQuery("This request is no longer available. Please send a new link to the bot.").catch(err => catchErrors(err, ctx))
 
-	// Check file size
-	var fileSize = fs.statSync(downloadedResponse.filePath).size
-	consola.info(`File size for request ${requestId} is ${(fileSize / (1024 * 1024)).toFixed(2)} MB (${fileSize} bytes)`)
-	if(fileSize > 2 * 1024 * 1024 * 1024){ // Telegram has 2 GB limit when using local server
-		consola.warn(`File size is too large (${(fileSize / (1024 * 1024)).toFixed(2)} MB), we will notify the user.`)
-		return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | Your download exceed the Telegram file size limit (${(fileSize / (1024 * 1024)).toFixed(2)} MB / 1.5 GB).</b>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake.`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-	}
+		const request = requests[requestId]
+		delete requests[requestId]
+		if(request.chatId != ctx.chat.id){
+			return ctx.answerCbQuery("❌ | This request was not sent to you.").catch(err => catchErrors(err, ctx))
+		}
 
-	// Send the file to the user
-	const details = request?.details || {}
-	var fileName = `${details?.title?.length ? details?.title : ""}${details?.title?.length && details?.author?.length ? " - " : ""}${details?.author?.length ? details?.author : ""}`
-	if(!fileName.length) fileName = downloadedResponse.filename || `downloaded_file.${format}`
-	fileName = fileName.replace(/[^a-zA-Z0-9_\- ]/g, "_").substring(0, 100) // Sanitize the file name and limit it to 100 characters
-	consola.info(`Sending the file to the user with file name: ${fileName}`)
+		// Get the provider and details
+		const provider = providers[request.provider]
+		if(!provider) return ctx.answerCbQuery("❌ | The provider associated to this video is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
 
-	try {
-		await ctx.persistentChatAction( // Send a chat action as long as the subsequent action is not completed
-			format == "mp4" ? "upload_video" : format == "mp3" ? "upload_voice" : "upload_document",
-			async () => {
-				// Send the file
-				await ctx[format == "mp4" ? "replyWithVideo" : format == "mp3" ? "replyWithAudio" : "replyWithDocument"]({
-					source: downloadedResponse.filePath,
-					filename: fileName + (format == "mp4" ? ".mp4" : format == "mp3" ? ".mp3" : ""),
-				}, {
-					title: details?.title || "Your downloaded file",
-					performer: details?.author || undefined,
-					caption: `<b>📥 | Here is your download!</b>\n\n<b>Title:</b> ${escapeHtml(details?.title)}${details?.author?.length ? `\n<b>Author:</b> ${escapeHtml(details?.author)}` : ""}${details?.duration ? `\n<b>Duration:</b> ${msPrettify(details?.duration * 1000, { max: 2 })}` : ""}${details?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(details?.views)}` : ""}`,
-					parse_mode: "HTML",
-					link_preview_options: { is_disabled: true }
-				})
+		// Start the download
+		var downloadedResponse
+		try {
+			ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | We're starting to download your file, it may take a few minutes.</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
+			downloadedResponse = await provider.download(request.url, { audioOnly: format === "mp3" })
+		} catch (err) {
+			catchErrors(err, ctx)
+		}
 
-				// Delete original response
-				await ctx.telegram.deleteMessage(request.chatId, request.messageId).catch(err => { consola.warn(`Failed to delete the original message for request ${requestId}:`, err) })
+		// If the download failed, we notify the user
+		if(downloadedResponse.error || !downloadedResponse.success || !downloadedResponse.filePath){
+			consola.error(`Download failed for request ${requestId} with error: ${downloadedResponse.error || "Unknown error"}`)
+			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while downloading the file.</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(downloadedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+		}
+		ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | Finalizing your download...</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
+
+		// If the file isn't in the expected format, we convert it
+		if(!downloadedResponse.filePath.endsWith(`.${format}`)){
+			consola.info(`File is not in the user-expected format (${format}), we will convert it.`)
+			const oldFormat = downloadedResponse.filePath.split(".").pop()
+
+			const convertedResponse = await convertFile(downloadedResponse.filePath, format)
+			if(!convertedResponse.success || convertedResponse.error){
+				consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse?.error || "Unknown error"}`)
+				return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse?.error || "Unknown error")?.substring(0, 500)}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 			}
-		).catch(err => catchErrors(err, ctx))
-	} catch (err) {
-		consola.error("Failed to send the file to the user, this could have caused issues later on.")
-		catchErrors(err, ctx)
-	}
 
-	// Finally, we delete the file from the disk
-	consola.info(`Request ${requestId} completed successfully, file sent to user ${ctx.from.id}.`)
-	delete requests[requestId]
-	try {
-		fs.unlinkSync(downloadedResponse.filePath)
-		consola.info(`File "${downloadedResponse.filePath}" associated to request ${requestId} deleted from disk.`)
-	} catch (err) {
-		consola.error(`Failed to delete the file "${downloadedResponse.filePath}" associated to request ${requestId} from disk:`, err)
-	}
+			downloadedResponse.filePath = convertedResponse.filePath // Update file path to the new one
+			consola.success(`File converted successfully from ${oldFormat} to ${format}`)
+		}
+
+		// Check file size
+		var fileSize = fs.statSync(downloadedResponse.filePath).size
+		consola.info(`File size for request ${requestId} is ${(fileSize / (1024 * 1024)).toFixed(2)} MB (${fileSize} bytes)`)
+		if(fileSize > 2 * 1024 * 1024 * 1024){ // Telegram has 2 GB limit when using local server
+			consola.warn(`File size is too large (${(fileSize / (1024 * 1024)).toFixed(2)} MB), we will notify the user.`)
+			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | Your download exceed the Telegram file size limit (${(fileSize / (1024 * 1024)).toFixed(2)} MB / 1.5 GB).</b>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake.`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+		}
+
+		// Send the file to the user
+		const details = request?.details || {}
+		var fileName = `${details?.title?.length ? details?.title : ""}${details?.title?.length && details?.author?.length ? " - " : ""}${details?.author?.length ? details?.author : ""}`
+		if(!fileName.length) fileName = downloadedResponse.filename || `downloaded_file.${format}`
+		fileName = fileName.replace(/[^a-zA-Z0-9_\- ]/g, "_").substring(0, 100) // Sanitize the file name and limit it to 100 characters
+		consola.info(`Sending the file to the user with file name: ${fileName}`)
+
+		try {
+			await ctx.persistentChatAction( // Send a chat action as long as the subsequent action is not completed
+				format == "mp4" ? "upload_video" : format == "mp3" ? "upload_voice" : "upload_document",
+				async () => {
+					// Send the file
+					await ctx[format == "mp4" ? "replyWithVideo" : format == "mp3" ? "replyWithAudio" : "replyWithDocument"]({
+						source: downloadedResponse.filePath,
+						filename: fileName + (format == "mp4" ? ".mp4" : format == "mp3" ? ".mp3" : ""),
+					}, {
+						title: details?.title || "Your downloaded file",
+						performer: details?.author || undefined,
+						caption: `<b>📥 | Here is your download!</b>\n\n<b>Title:</b> ${escapeHtml(details?.title)}${details?.author?.length ? `\n<b>Author:</b> ${escapeHtml(details?.author)}` : ""}${details?.duration ? `\n<b>Duration:</b> ${msPrettify(details?.duration * 1000, { max: 2 })}` : ""}${details?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(details?.views)}` : ""}`,
+						parse_mode: "HTML",
+						link_preview_options: { is_disabled: true }
+					})
+
+					// Delete original response
+					await ctx.telegram.deleteMessage(request.chatId, request.messageId).catch(err => { consola.warn(`Failed to delete the original message for request ${requestId}:`, err) })
+				}
+			).catch(err => catchErrors(err, ctx))
+		} catch (err) {
+			consola.error("Failed to send the file to the user, this could have caused issues later on.")
+			catchErrors(err, ctx)
+		}
+
+		// Finally, we delete the file from the disk
+		consola.info(`Request ${requestId} completed successfully, file sent to user ${ctx.from.id}.`)
+		try {
+			fs.unlinkSync(downloadedResponse.filePath)
+			consola.info(`File "${downloadedResponse.filePath}" associated to request ${requestId} deleted from disk.`)
+		} catch (err) {
+			consola.error(`Failed to delete the file "${downloadedResponse.filePath}" associated to request ${requestId} from disk:`, err)
+		}
+	})().catch(err => {
+		consola.error("An error occured while processing the download action:", err)
+		catchErrors(err, ctx)
+		ctx.answerCbQuery("🔴 | An error occured while processing your request. Please try again later or report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
+	})
 })
 
 // Allow clean exit

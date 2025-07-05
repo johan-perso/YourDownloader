@@ -1,31 +1,30 @@
 const fs = require("fs")
-const path = require("path")
 const msPrettify = require("ms-prettify").default
 const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
 const { spawn } = require("child_process")
-const { randomString } = require("./utils/random")
-const { sanitizeUrl } = require("./utils/sanitize")
-const convertFile = require("./utils/convertFile")
+const { randomString } = require("./src/utils/random")
+const { sanitizeUrl } = require("./src/utils/sanitize")
+const convertFile = require("./src/utils/convertFile")
 require("dotenv").config()
 
 const requests = {}
 
 const providers = {
-	"ytdlp": require("./providers/ytdlp"),
+	"ytdlp": require("./src/providers/ytdlp"),
 }
 const domainsProviders = {
 	"youtube.com": "ytdlp",
 	"youtu.be": "ytdlp",
 }
 const subproviders = {
-	"applemusic": require("./subproviders/applemusic")
+	"applemusic": require("./src/subproviders/applemusic")
 }
 const domainsSubproviders = {
 	"music.apple.com": "applemusic"
 }
 const searchPlatforms = {
-	"youtube": require("./search/youtube")
+	"youtube": require("./src/search/youtube")
 }
 
 async function globalCheck(){
@@ -137,8 +136,8 @@ function escapeHtml(text){
 	return text?.replace(/&/g, "&amp;")?.replace(/</g, "&lt;")?.replace(/>/g, "&gt;")?.replace(/"/g, "&quot;")?.replace(/'/g, "&#039;")
 }
 function addSpaceEveryThreeChars(number) {
-	if (!number && number !== 0) return number
-	if (typeof number !== "number") return number
+	if(!number && number !== 0) return number
+	if(typeof number !== "number") return number
 	return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 }
 

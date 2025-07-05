@@ -4,11 +4,11 @@ const applemusicCache = new NodeCache({ stdTTL: 60 * 60 * 4 }) // Cache to 4 hou
 async function getDetails(url) {
 	return new Promise(async (resolve, reject) => {
 		if(!url || typeof url !== "string") return reject(new Error("Invalid URL provided"))
-		if (applemusicCache.has(url)) return resolve(applemusicCache.get(url))
+		if(applemusicCache.has(url)) return resolve(applemusicCache.get(url))
 
 		var webpage = await fetch(url).then(res => {
 			if(res.status === 404) return reject(new Error("404: The URL was not found and the server returned a 404 status code"))
-			else if (!res.ok) throw new Error(`Server returned status ${res.status} ${res.statusText}`)
+			else if(!res.ok) throw new Error(`Server returned status ${res.status} ${res.statusText}`)
 			else return res.text()
 		}).catch((err) => {
 			return reject(new Error(`Failed to check if URL can be accessed: ${url} (${err?.message || err})`))

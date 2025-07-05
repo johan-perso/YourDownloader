@@ -4,7 +4,7 @@
  * @returns {string} - The sanitized string
  */
 function sanitizeForTerminal(input) {
-	if (typeof input !== "string") throw new Error("Input must be a string")
+	if(typeof input !== "string") throw new Error("Input must be a string")
 
 	return input
 		.replace(/\0/g, "") // Remove null bytes
@@ -19,23 +19,23 @@ function sanitizeForTerminal(input) {
  * @returns {string} - The sanitized URL
  */
 function sanitizeUrl(url) {
-	if (typeof url !== "string") throw new Error("URL must be a string")
+	if(typeof url !== "string") throw new Error("URL must be a string")
 
 	url = url.trim()
-	// if (url.includes(";") || url.includes("|") || url.includes("&") || url.includes("`") || url.includes("$")) throw new Error("URL contains potentially dangerous characters") // not needed when using child_process.spawn
+	// if(url.includes(";") || url.includes("|") || url.includes("&") || url.includes("`") || url.includes("$")) throw new Error("URL contains potentially dangerous characters") // not needed when using child_process.spawn
 
 	// Basic URL validation
 	try {
 		const urlObj = new URL(url)
 
-		if (!["http:", "https:"].includes(urlObj.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed")
+		if(!["http:", "https:"].includes(urlObj.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed")
 
 		// Reconstruct a clean URL to prevent any shell injection
 		let cleanUrl = `${urlObj.protocol}//${urlObj.hostname}`
-		if (urlObj.port) cleanUrl += `:${urlObj.port}`
+		if(urlObj.port) cleanUrl += `:${urlObj.port}`
 		cleanUrl += urlObj.pathname
-		if (urlObj.search) cleanUrl += urlObj.search
-		if (urlObj.hash) cleanUrl += urlObj.hash
+		if(urlObj.search) cleanUrl += urlObj.search
+		if(urlObj.hash) cleanUrl += urlObj.hash
 
 		return cleanUrl
 	} catch (error) {
@@ -49,7 +49,7 @@ function sanitizeUrl(url) {
  * @returns {string} - The sanitized file path
  */
 function sanitizeFilePath(filePath) {
-	if (typeof filePath !== "string") throw new Error("File path must be a string")
+	if(typeof filePath !== "string") throw new Error("File path must be a string")
 
 	const sanitized = filePath
 		.replace(/\0/g, "") // Remove null bytes
@@ -60,7 +60,7 @@ function sanitizeFilePath(filePath) {
 		.trim() // Trim whitespace
 
 	// Prevent directory traversal attacks
-	if (sanitized.includes("../") || sanitized.includes("..\\")) throw new Error("Directory traversal is not allowed")
+	if(sanitized.includes("../") || sanitized.includes("..\\")) throw new Error("Directory traversal is not allowed")
 
 	return sanitized
 }
@@ -71,7 +71,7 @@ function sanitizeFilePath(filePath) {
  * @returns {string} - The escaped string wrapped in single quotes
  */
 function escapeShellArg(input) {
-	if (typeof input !== "string") throw new Error("Input must be a string")
+	if(typeof input !== "string") throw new Error("Input must be a string")
 
 	// For single quotes, we need to end the quote, add an escaped quote, and start a new quote
 	return `'${input.replace(/'/g, "'\"'\"'")}'`
@@ -83,10 +83,10 @@ function escapeShellArg(input) {
  * @returns {Array} - Array of sanitized arguments
  */
 function sanitizeCommandArgs(args) {
-	if (!Array.isArray(args)) throw new Error("Arguments must be an array")
+	if(!Array.isArray(args)) throw new Error("Arguments must be an array")
 
 	return args.map((arg, index) => {
-		if (typeof arg !== "string") {
+		if(typeof arg !== "string") {
 			throw new Error(`Argument at index ${index} must be a string`)
 		}
 
@@ -101,7 +101,7 @@ function sanitizeCommandArgs(args) {
  * @returns {boolean} - True if the string appears safe, false otherwise
  */
 function isSafeForTerminal(input) {
-	if (typeof input !== "string") return false
+	if(typeof input !== "string") return false
 
 	// Check for dangerous patterns
 	const dangerousPatterns = [
@@ -125,14 +125,14 @@ function sanitizeOutputDir(outputDir) {
 	const sanitized = sanitizeFilePath(outputDir)
 
 	// Ensure the path doesn't start with a dash (could be confused with a flag)
-	if (sanitized.startsWith("-")) throw new Error("Output directory path cannot start with a dash")
+	if(sanitized.startsWith("-")) throw new Error("Output directory path cannot start with a dash")
 
 	// Ensure it's a relative path within the project or an absolute path
-	if (sanitized.startsWith("/") || sanitized.match(/^[A-Za-z]:/)) {
+	if(sanitized.startsWith("/") || sanitized.match(/^[A-Za-z]:/)) {
 		return sanitized // Absolute path - validate it's safe
 	} else {
 		// Relative path - ensure it doesn't go outside current directory
-		if (sanitized.startsWith("../")) throw new Error("Output directory cannot be outside the current directory")
+		if(sanitized.startsWith("../")) throw new Error("Output directory cannot be outside the current directory")
 		return sanitized
 	}
 }

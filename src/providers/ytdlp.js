@@ -9,9 +9,9 @@ const NodeCache = require("node-cache")
 const ytdlpCache = new NodeCache({ stdTTL: 60 * 60 * 4 }) // Cache to 4 hours
 
 function cleanYtbUrl(url = "") {
-	if (!url) return ""
+	if(!url) return ""
 	const urlObj = new URL(url)
-	if (urlObj.search) {
+	if(urlObj.search) {
 		const searchParams = new URLSearchParams(urlObj.search)
 		searchParams.delete("list") // Remove playlist parameter
 		searchParams.delete("start_radio") // Remove start radio parameter
@@ -48,7 +48,7 @@ function cleanYtbUrl(url = "") {
 async function getDetails(url) {
 	return new Promise(async (resolve, reject) => {
 		if(!url || typeof url !== "string") return reject(new Error("Invalid URL provided"))
-		if (ytdlpCache.has(url)) return resolve(ytdlpCache.get(url))
+		if(ytdlpCache.has(url)) return resolve(ytdlpCache.get(url))
 
 		// Sanitize the URL before using it
 		var sanitizedUrl
@@ -60,14 +60,14 @@ async function getDetails(url) {
 		if(!sanitizedUrl) return reject(new Error("Invalid or empty URL provided"))
 
 		var webpage = await fetch(sanitizedUrl).then(res => {
-			if (!res.ok) throw new Error(`Server returned status ${res.status} ${res.statusText}`)
+			if(!res.ok) throw new Error(`Server returned status ${res.status} ${res.statusText}`)
 			return res.text()
 		}).catch((err) => {
 			return reject(new Error(`Failed to check if URL can be accessed: ${sanitizedUrl} (${err?.message || err})`))
 		})
 
 		// If the webpage is not accessible, reject
-		if (!webpage || webpage.includes("404 Not Found") || webpage.includes("This video is unavailable") || webpage.includes("<title> - YouTube</title>")) return reject(new Error(`404: The URL is not accessible or the video could not be found: ${sanitizedUrl}`))
+		if(!webpage || webpage.includes("404 Not Found") || webpage.includes("This video is unavailable") || webpage.includes("<title> - YouTube</title>")) return reject(new Error(`404: The URL is not accessible or the video could not be found: ${sanitizedUrl}`))
 
 		const fallbackTitle = webpage.match(/<title>(.*?)<\/title>/)?.[1]?.trim() || "Unknown Title"
 
@@ -146,19 +146,19 @@ async function download(url, options = {}) {
 			const args = []
 
 			// File format
-			if (opts.audioOnly || sanitizedFormat === "mp3") {
+			if(opts.audioOnly || sanitizedFormat === "mp3") {
 				args.push("-x", "--audio-format", "mp3")
-			} else if (sanitizedFormat === "mp4") {
+			} else if(sanitizedFormat === "mp4") {
 				args.push("-f", "best[ext=mp4]/best")
 			} else {
 				args.push("-f", sanitizedFormat)
 			}
 
 			// File quality
-			if (sanitizedQuality !== "best" && !opts.audioOnly) args.push("-f", `best[height<=${sanitizedQuality.replace("p", "")}]`)
+			if(sanitizedQuality !== "best" && !opts.audioOnly) args.push("-f", `best[height<=${sanitizedQuality.replace("p", "")}]`)
 
 			// Max file size
-			if (opts.maxFileSize) args.push("--max-filesize", `${opts.maxFileSize}m`)
+			if(opts.maxFileSize) args.push("--max-filesize", `${opts.maxFileSize}m`)
 
 			// Name and output path
 			const outputTemplate = path.join(sanitizedOutputDir, opts.filename)
@@ -190,7 +190,7 @@ async function download(url, options = {}) {
 			ytdlp.stderr.on("data", (data) => { errorOutput += data.toString() })
 
 			ytdlp.on("close", async (code) => {
-				if (code === 0) {
+				if(code === 0) {
 					try {
 						// Search for the downloaded file
 						const fileExtension = opts.audioOnly ? ".mp3" : ".mp4"
@@ -201,12 +201,12 @@ async function download(url, options = {}) {
 								const extB = path.extname(b).toLowerCase()
 								const isExactA = extA === fileExtension
 								const isExactB = extB === fileExtension
-								if (isExactA && !isExactB) return -1
-								if (!isExactA && isExactB) return 1
+								if(isExactA && !isExactB) return -1
+								if(!isExactA && isExactB) return 1
 								return 0 // Keep original order if both are exact or neither is
 							})
 
-						if (files.length == 0) resolve({
+						if(files.length == 0) resolve({
 							success: false,
 							error: "Unable to find the downloaded file"
 						})
@@ -214,7 +214,7 @@ async function download(url, options = {}) {
 						if(files.length > 1 && files.find(f => f === `${fileId}${fileExtension}`)) downloadedFilePath = path.join(sanitizedOutputDir, `${fileId}${fileExtension}`)
 						else downloadedFilePath = path.join(sanitizedOutputDir, files[0]) // Else, just use the first file found
 
-						if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
+						if(downloadedFilePath && fs.existsSync(downloadedFilePath)) {
 							consola.success(`ytdlp: Finished downloading: ${downloadedFilePath}`)
 							resolve({
 								success: true,

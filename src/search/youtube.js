@@ -15,7 +15,7 @@ async function search(query, maxResults = 1) {
 		if(results.items.length) results.items = results.items.filter(item => item.id && item.type == "video" && !item.type.isLive)
 		if(results.items.length) results.items = results.items.slice(0, maxResults)
 
-		if (!results || !results.items || results.items.length === 0) {
+		if(!results || !results.items || results.items.length === 0) {
 			return resolve({
 				success: false,
 				error: "No results found for this query"

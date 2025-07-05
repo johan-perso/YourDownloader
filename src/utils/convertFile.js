@@ -34,10 +34,10 @@ function convertFile(inputPath, outputFormat) {
 		ffmpeg.stderr.on("data", (data) => { errorOutput += data.toString() })
 
 		ffmpeg.on("close", (code) => {
-			if (code === 0) {
+			if(code === 0) {
 				// On successful conversion, delete the original file
 				fs.unlink(inputPath, (err) => {
-					if (err) { // if we can't delete file, we warn in the console but it's not fatal
+					if(err) { // if we can't delete file, we warn in the console but it's not fatal
 						consola.warn(`Failed to delete original file "${inputPath}" after conversion:`, err)
 					}
 				})

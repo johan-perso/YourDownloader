@@ -176,7 +176,7 @@ const bot = new Telegraf(
 	{
 		handlerTimeout: 9_000_000,
 		telegram: {
-			apiRoot: "http://localhost:8081" // URL de ton serveur local
+			apiRoot: process.env.TELEGRAM_API_ROOT || "https://api.telegram.org"
 		}
 	}
 )

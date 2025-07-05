@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  telegram-bot-api:
+    container_name: telegram-api
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TELEGRAM_LOCAL=true
+
+  bot:
+    container_name: telegram-bot-api
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - telegram-bot-api
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_API_ROOT=http://telegram-bot-api:8081

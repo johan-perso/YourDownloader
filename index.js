@@ -18,6 +18,15 @@ const domainsProviders = {
 	"youtube.com": "ytdlp",
 	"youtu.be": "ytdlp",
 }
+const subproviders = {
+	"applemusic": require("./subproviders/applemusic")
+}
+const domainsSubproviders = {
+	"music.apple.com": "applemusic"
+}
+const searchPlatforms = {
+	"youtube": require("./search/youtube")
+}
 
 async function globalCheck(){
 	consola.info("Starting global checks...")
@@ -141,7 +150,7 @@ function catchErrors(err, ctx){
 		consola.log(`We will try to tell the user about this error, with the code "${randomCode}"`)
 
 		try {
-			ctx.replyWithHTML(`<b>🔴 | An error occured while processing your message</b>\n\nPlease report this problem to the <a href="https://t.me/JohanStick">bot owner</a> with the code <code>${randomCode}</code> so he can access some details.\nYou can also open a new issue on <a href="https://github.com/johan-perso/yourdownloader/issues/new">GitHub</a>.\n\n<pre>${escapeHtml(err?.message || err?.stack || err)}\n</pre>`, { link_preview_options: { is_disabled: true } }).catch(err => consola.error("Couldn't sent the error report to the user: ", err))
+			ctx.replyWithHTML(`<b>🔴 | An error occured while processing your message</b>\n\nPlease report this problem to the <a href="https://t.me/JohanStick">bot owner</a> with the code <code>${randomCode}</code> so he can access some details.\nYou can also open a new issue on <a href="https://github.com/johan-perso/yourdownloader/issues/new">GitHub</a>.\n\n<pre>${escapeHtml(err?.message || err?.stack || err).substring(0, 3600)}\n</pre>`, { link_preview_options: { is_disabled: true } }).catch(err => consola.error("Couldn't sent the error report to the user: ", err))
 		} catch (err) {
 			consola.error("Couldn't sent the error report to the user: ", err)
 		}
@@ -212,21 +221,99 @@ bot.on("message", async (ctx) => {
 			url = url.replace("youtu.be/", "youtube.com/watch?v=")
 		}
 
-		// Check if the domain is supported and get the provider associated
-		var providerName = domainsProviders[domain]
-		if(!providerName){
-			consola.warn("Using ytdlp provider as a fallback, it may not be supported")
-			providerName = "ytdlp"
-		}
-		const provider = providers[providerName]
-		if(!provider) return ctx.replyWithHTML("⚠️ | The provider for this service is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.").catch(err => catchErrors(err, ctx));
-
 		(async () => {
 			const ctxReply = await ctx.replyWithHTML("<b>🔍 | Searching details about this link</b>\n\nPlease wait, this may take a few seconds...").catch(err => catchErrors(err, ctx))
 			if(!ctxReply){
 				consola.error("Failed to send the initial reply to the user, this could have caused issues later on.")
 				return
 			}
+
+			// If domain is supported by a subprovider
+			var subproviderName = domainsSubproviders[domain]
+			if(subproviderName){
+				consola.info(`Using subprovider ${subproviderName}`)
+				const subprovider = subproviders[subproviderName]
+				if(!subprovider) return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "⚠️ | The subprovider for this domain is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.", { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+
+				// Get details from the subprovider to know where to search
+				var whereToSearch
+				try {
+					whereToSearch = await subprovider.getDetails(url).catch(err => { return { success: false, error: err } })
+				} catch (err) { catchErrors(err, ctx) }
+				if(!whereToSearch?.find?.query || whereToSearch.error || whereToSearch.message || !whereToSearch.success){
+					ctx.telegram.editMessageText(
+						ctx.chat.id,
+						ctxReply.message_id,
+						null,
+						whereToSearch?.message?.includes("404:")
+							? "🔴 | It seems we couldn't access the page you entered. You may have typed it wrong, or it is region locked."
+							: `🔴 | ${whereToSearch?.message || whereToSearch?.error || whereToSearch || "An error occured while getting details for this link. Please try again later."}`
+					).catch(err => catchErrors(err, ctx))
+					return
+				}
+
+				// Edit message to show where we will search
+				consola.info(`Details for the URL: ${url} using subprovider: ${subproviderName}`, whereToSearch)
+				await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔍 | Searching on ${whereToSearch.find.platformName}...</b>\n\n<b>Title:</b> ${escapeHtml(whereToSearch?.title)}${whereToSearch?.author?.length ? `\n<b>Author:</b> ${escapeHtml(whereToSearch?.author)}` : ""}${whereToSearch?.duration ? `\n<b>Duration:</b> ${msPrettify(whereToSearch?.duration * 1000, { max: 2 })}` : ""}${whereToSearch?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(whereToSearch?.views)}` : ""}\n\n<i>We can't directly download from this service, we will try to search it on another platform.</i>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+
+				// Search with the provided query
+				var foundResultWithSearch = false
+				var searchErrors = []
+				for(const query of whereToSearch.find.query){
+					consola.info(`Searching on ${whereToSearch.find.platform} with query: ${query}`)
+					if(!searchPlatforms[whereToSearch.find.platform]){
+						var reason = `Search platform with id ${whereToSearch.find.platform} is not supported, skipping...`
+						consola.warn(reason)
+						searchErrors.push(reason)
+						continue
+					}
+
+					var searchResult
+					try {
+						searchResult = await searchPlatforms[whereToSearch.find.platform].search(query, 1).catch(err => {
+							return { success: false, error: err }
+						})
+						if(!searchResult?.success || !searchResult?.url?.length || searchResult?.error){
+							var reason = `Failed to search "${query}" on ${whereToSearch.find.platform}: ${searchResult?.error || searchResult}`
+							consola.error(reason)
+							searchErrors.push(reason)
+							continue
+						}
+					} catch (err) {
+						catchErrors(err, ctx)
+					}
+
+					// If we found a result, we can use it
+					if(searchResult.url){
+						consola.info(`Found a result for the query "${query}" on platform "${whereToSearch.find.platform}":`, searchResult)
+						foundResultWithSearch = true
+						url = searchResult.url
+						domain = new URL(url).hostname.replace(/^www\./, "")
+						consola.info(`Using the found URL: ${url} with domain: ${domain}`)
+						break // we found a result, we can stop searching
+					}
+
+					searchErrors.push(`No results found for "${query}"`)
+				}
+
+				if(!url || !domain || !foundResultWithSearch){
+					consola.error("No valid URL found after searching with the subprovider data, we will stop here.")
+					if(searchErrors.length) consola.error(`Search errors: ${searchErrors.join(", ")}`)
+					return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔴 | We couldn't find any valid URL to download from.</b>\n\n<pre>- ${escapeHtml(searchErrors.join("\n- "))}</pre>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+				}
+
+				consola.info(`Using the URL: ${url} with domain: ${domain} after searching with the subprovider data`)
+				await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, `<b>🔍 | We found something, gathering data about it...</b>\n\n<b>Title:</b> ${escapeHtml(whereToSearch?.title)}${whereToSearch?.author?.length ? `\n<b>Author:</b> ${escapeHtml(whereToSearch?.author)}` : ""}${whereToSearch?.duration ? `\n<b>Duration:</b> ${msPrettify(whereToSearch?.duration * 1000, { max: 2 })}` : ""}${whereToSearch?.views ? `\n<b>Views:</b> ${addSpaceEveryThreeChars(whereToSearch?.views)}` : ""}\n\n<i>We can't directly download from this service, we will try to search it on another platform.</i>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			}
+
+			// Check if the domain is supported and get the provider associated
+			var providerName = domainsProviders[domain]
+			if(!providerName){
+				consola.warn("Using ytdlp provider as a fallback, it may not be supported")
+				providerName = "ytdlp"
+			}
+			const provider = providers[providerName]
+			if(!provider) return await ctx.telegram.editMessageText(ctx.chat.id, ctxReply.message_id, null, "⚠️ | The provider for this domain is not available. Please report this issue to the <a href=\"https://t.me/JohanStick\">bot owner</a>.", { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 
 			// Get details about the URL
 			consola.info(`Getting details for the URL: ${url} using provider: ${providerName}`)

@@ -21,12 +21,14 @@ const subproviders = {
 	"applemusic": require("./src/subproviders/applemusic"),
 	"spotify": require("./src/subproviders/spotify"),
 	"deezer": require("./src/subproviders/deezer"),
+	"tidal": require("./src/subproviders/tidal"),
 	"songlink": require("./src/subproviders/songlink"),
 }
 const domainsSubproviders = {
 	"music.apple.com": "applemusic",
 	"open.spotify.com": "spotify",
 	"deezer.com": "deezer",
+	"tidal.com": "tidal",
 	"song.link": "songlink",
 }
 const searchPlatforms = {

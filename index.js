@@ -18,10 +18,12 @@ const domainsProviders = {
 	"youtu.be": "ytdlp",
 }
 const subproviders = {
-	"applemusic": require("./src/subproviders/applemusic")
+	"applemusic": require("./src/subproviders/applemusic"),
+	"spotify": require("./src/subproviders/spotify"),
 }
 const domainsSubproviders = {
-	"music.apple.com": "applemusic"
+	"music.apple.com": "applemusic",
+	"open.spotify.com": "spotify"
 }
 const searchPlatforms = {
 	"youtube": require("./src/search/youtube")

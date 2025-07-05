@@ -19,7 +19,7 @@ async function getDetails(url) {
 		var details = {
 			"title": webpage?.split("<meta name=\"og:title\" content=\"")?.[1]?.split("\"/>")?.[0] || webpage?.split("<meta name=\"twitter:title\" content=\"")?.[1]?.split("\"/>")?.[0] || webpage?.split("\",\"name\":\"")?.[1]?.split("\",\"")?.[0] || "",
 			"author": webpage?.split("<meta name=\"music:musician_description\" content=\"")?.[1]?.split("\"/>")?.[0] || "",
-			"duration": parseFloat(webpage?.split("<meta name=\"music:duration\" content=\"")?.[1]?.split("\">")?.[0]),
+			"duration": parseFloat(webpage?.split("<meta name=\"music:duration\" content=\"")?.[1]?.split("\">")?.[0] || "0"),
 			"find": {
 				"provider": "ytdlp",
 				"platform": "youtube",

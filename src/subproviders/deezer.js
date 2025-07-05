@@ -1,11 +1,11 @@
 const he = require("he")
 const NodeCache = require("node-cache")
-const spotifyCache = new NodeCache({ stdTTL: 60 * 60 * 4 }) // Cache to 4 hours
+const deezerCache = new NodeCache({ stdTTL: 60 * 60 * 4 }) // Cache to 4 hours
 
 async function getDetails(url) {
 	return new Promise(async (resolve, reject) => {
 		if(!url || typeof url !== "string") return reject(new Error("Invalid URL provided"))
-		if(spotifyCache.has(url)) return resolve(spotifyCache.get(url))
+		if(deezerCache.has(url)) return resolve(deezerCache.get(url))
 
 		var webpage = await fetch(url).then(res => {
 			if(res.status === 404) return reject(new Error("404: The URL was not found and the server returned a 404 status code"))
@@ -41,7 +41,7 @@ async function getDetails(url) {
 		details.find.query.push(`${details.author} ${details.title}`.trim())
 
 		var response = { success: true, ...details }
-		spotifyCache.set(url, response)
+		deezerCache.set(url, response)
 		resolve(response)
 	})
 }

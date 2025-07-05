@@ -16,6 +16,7 @@ const providers = {
 const domainsProviders = {
 	"youtube.com": "ytdlp",
 	"youtu.be": "ytdlp",
+	"music.youtube.com": "ytdlp",
 }
 const subproviders = {
 	"applemusic": require("./src/subproviders/applemusic"),

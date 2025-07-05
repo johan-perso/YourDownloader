@@ -210,7 +210,7 @@ async function main(){
 		})
 
 		consola.info(`Cleaned up ${deletedFiles} files on disk that were not cached anymore.`)
-	}, 1000 * 60) // Hourly cleanup
+	}, 1000 * 60 * 60) // Hourly cleanup
 
 	consola.info("Starting the bot...")
 	consola.info("Telegram API Root:", bot.telegram.options.apiRoot)
@@ -440,12 +440,18 @@ bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 		const cachedFile = downloadsCache.get(`${format}:${request.url}`)
 		var filePath = cachedFile?.filePath || null
 		var fileNameFallback = cachedFile?.fileNameFallback || null
+		var isRedownloading = true
 		if(cachedFile && filePath && fileNameFallback){
 			if(!fs.existsSync(filePath)){
 				consola.warn(`Cached file for request ${requestId} was still in cache but does not exist anymore, ignoring and deleting it.`)
 				downloadsCache.del(requestId)
-			} else consola.info(`File for request ${requestId} is already in cache, skipping download steps.`)
-		} else {
+			} else {
+				consola.info(`File for request ${requestId} is already in cache, skipping download steps.`)
+				isRedownloading = false
+			}
+		}
+
+		if(isRedownloading){
 			// Get the provider and details
 			const provider = providers[request.provider]
 			if(!provider) return ctx.answerCbQuery("❌ | The provider associated to this video is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))

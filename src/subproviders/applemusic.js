@@ -20,7 +20,6 @@ async function getDetails(url) {
 			"title": webpage?.split("<meta name=\"apple:title\" content=\"")[1]?.split("\">")[0] || webpage?.split("\"@type\":\"MusicComposition\",\"name\":\"")[1]?.split("\",\"")[0] || "",
 			"author": webpage?.split("\"byArtist\":[{\"@type\":\"MusicGroup\",\"name\":\"")[1]?.split("\",\"")[0] || "",
 			"duration": parseFloat(webpage?.replace(/\n/g, "")?.replace(/\t/g, "")?.replace(/ /g, "")?.split("\"tertiaryLinks\":null,\"duration\":")[1]?.split(",\"")[0] || webpage?.split(",\"duration\":\"")[1]?.split(",\"")[0] || "0") / 1000,
-			"provider": "ytdlp",
 			"find": {
 				"provider": "ytdlp",
 				"platform": "youtube",
@@ -32,6 +31,19 @@ async function getDetails(url) {
 			success: false,
 			error: "Unable to find title or artist name on the provided URL"
 		})
+
+		// Search inside the serialized server data for the track duration (as the method may fail if getting details about an album)
+		try {
+			var serializedServerData = webpage?.split("<script type=\"application/json\" id=\"serialized-server-data\">[")[1]?.split("]</script>")[0]
+			var parsedData = JSON.parse(serializedServerData)
+			console.log(parsedData)
+
+			var track = {}
+			if(parsedData) track = parsedData?.data?.sections?.find(section => section?.id?.includes("track-list"))?.items?.find(track => track?.title == details?.title)
+			console.log(track)
+			details.duration = (track?.duration / 1000) || details?.duration
+		} catch (err) {}
+
 		details.find.query.push(`${details.title} - ${details.author}`.trim())
 		details.find.query.push(`${details.author} - ${details.title}`.trim())
 		details.find.query.push(`${details.author} ${details.title}`.trim())

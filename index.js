@@ -1,4 +1,5 @@
 const fs = require("fs")
+const path = require("path")
 const msPrettify = require("ms-prettify").default
 const { consola } = require("consola")
 const { Telegraf } = require("telegraf")
@@ -8,6 +9,7 @@ const { sanitizeUrl } = require("./src/utils/sanitize")
 const convertFile = require("./src/utils/convertFile")
 require("dotenv").config()
 
+const downloadsCache = new (require("node-cache"))({ stdTTL: 60 * 60 * 48 }) // Cache to 48 hours
 const requests = {}
 
 const providers = {
@@ -181,6 +183,35 @@ const bot = new Telegraf(
 async function main(){
 	await globalCheck()
 
+	setInterval(() => { // cached requests automatically expires, so we're deleting files that aren't cached anymore
+		consola.info("Checking if we need to delete uncached files...")
+		var deletedFiles = 0
+
+		var cachedFiles = []
+		downloadsCache.keys().forEach((key) => {
+			const cachedFile = downloadsCache.get(key)
+			if(!cachedFile || !cachedFile?.filePath || !fs.existsSync(cachedFile.filePath)){
+				consola.info(`Cached file for key "${key}" does not exist anymore, deleting it from cache.`)
+				downloadsCache.del(key)
+			} else cachedFiles.push(cachedFile)
+		})
+		consola.info(`Found ${cachedFiles.length} files in cache that are still on disk.`)
+
+		// Delete files from disk that are not in cache anymore
+		const tempDir = "./temp"
+		if(!fs.existsSync(tempDir)) return consola.warn(`Temp directory "${tempDir}" does not exist, skipping cleanup.`)
+		fs.readdirSync(tempDir).forEach((file) => {
+			const filePath = path.join(tempDir, file)
+			if(fs.statSync(filePath).isFile() && !cachedFiles.some(cachedFile => cachedFile.filePath === filePath)){
+				consola.info(`Deleting cached file that isn't cached: ${filePath}`)
+				fs.unlinkSync(filePath)
+				deletedFiles++
+			}
+		})
+
+		consola.info(`Cleaned up ${deletedFiles} files on disk that were not cached anymore.`)
+	}, 1000 * 60) // Hourly cleanup
+
 	consola.info("Starting the bot...")
 	consola.info("Telegram API Root:", bot.telegram.options.apiRoot)
 	bot.launch().then(() => { // it seems like, sometimes, this is not triggered even if the bot has launched successfully
@@ -296,7 +327,7 @@ bot.on("message", async (ctx) => {
 
 				// If we found a result, we can use it
 				if(searchResult.url){
-					consola.info(`Found a result for the query "${query}" on platform "${whereToSearch.find.platform}":`, searchResult)
+					consola.success(`Found a result for the query "${query}" on platform "${whereToSearch.find.platform}":`, searchResult)
 					foundResultWithSearch = true
 					url = searchResult.url
 					domain = new URL(url).hostname.replace(/^www\./, "")
@@ -405,53 +436,67 @@ bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 			return ctx.answerCbQuery("❌ | This request was not sent to you.").catch(err => catchErrors(err, ctx))
 		}
 
-		// Get the provider and details
-		const provider = providers[request.provider]
-		if(!provider) return ctx.answerCbQuery("❌ | The provider associated to this video is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
+		// Skip some steps if we already have the file in cache
+		const cachedFile = downloadsCache.get(`${format}:${request.url}`)
+		var filePath = cachedFile?.filePath || null
+		var fileNameFallback = cachedFile?.fileNameFallback || null
+		if(cachedFile && filePath && fileNameFallback){
+			if(!fs.existsSync(filePath)){
+				consola.warn(`Cached file for request ${requestId} was still in cache but does not exist anymore, ignoring and deleting it.`)
+				downloadsCache.del(requestId)
+			} else consola.info(`File for request ${requestId} is already in cache, skipping download steps.`)
+		} else {
+			// Get the provider and details
+			const provider = providers[request.provider]
+			if(!provider) return ctx.answerCbQuery("❌ | The provider associated to this video is not available. Please report this issue to the bot owner.").catch(err => catchErrors(err, ctx))
 
-		// Start the download
-		var downloadedResponse
-		try {
-			ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | We're starting to download your file, it may take a few minutes.</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
-			downloadedResponse = await provider.download(request.url, { audioOnly: format === "mp3" })
-		} catch (err) {
-			catchErrors(err, ctx)
-		}
-
-		// If the download failed, we notify the user
-		if(downloadedResponse.error || !downloadedResponse.success || !downloadedResponse.filePath){
-			consola.error(`Download failed for request ${requestId} with error: ${downloadedResponse.error || "Unknown error"}`)
-			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while downloading the file.</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(downloadedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
-		}
-		ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | Finalizing your download...</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
-
-		// If the file isn't in the expected format, we convert it
-		if(!downloadedResponse.filePath.endsWith(`.${format}`)){
-			consola.info(`File is not in the user-expected format (${format}), we will convert it.`)
-			const oldFormat = downloadedResponse.filePath.split(".").pop()
-
-			const convertedResponse = await convertFile(downloadedResponse.filePath, format)
-			if(!convertedResponse.success || convertedResponse.error){
-				consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse?.error || "Unknown error"}`)
-				return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse?.error || "Unknown error")?.substring(0, 500)}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			// Start the download
+			var downloadedResponse
+			try {
+				ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | We're starting to download your file, it may take a few minutes.</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
+				downloadedResponse = await provider.download(request.url, { audioOnly: format === "mp3" })
+			} catch (err) {
+				catchErrors(err, ctx)
 			}
 
-			downloadedResponse.filePath = convertedResponse.filePath // Update file path to the new one
-			consola.success(`File converted successfully from ${oldFormat} to ${format}`)
-		}
+			// If the download failed, we notify the user
+			if(downloadedResponse.error || !downloadedResponse.success || !downloadedResponse.filePath){
+				consola.error(`Download failed for request ${requestId} with error: ${downloadedResponse.error || "Unknown error"}`)
+				return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while downloading the file.</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(downloadedResponse.error || "Unknown error")}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			}
+			ctx.telegram.editMessageText(request.chatId, request.messageId, null, "<b>⏳ | Finalizing your download...</b>\n\nIn the meantime, you can check out how to support us by using the /donate command!", { parse_mode: "HTML" }).catch(err => catchErrors(err, ctx))
 
-		// Check file size
-		var fileSize = fs.statSync(downloadedResponse.filePath).size
-		consola.info(`File size for request ${requestId} is ${(fileSize / (1024 * 1024)).toFixed(2)} MB (${fileSize} bytes)`)
-		if(fileSize > 2 * 1024 * 1024 * 1024){ // Telegram has 2 GB limit when using local server
-			consola.warn(`File size is too large (${(fileSize / (1024 * 1024)).toFixed(2)} MB), we will notify the user.`)
-			return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | Your download exceed the Telegram file size limit (${(fileSize / (1024 * 1024)).toFixed(2)} MB / 1.5 GB).</b>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake.`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			// If the file isn't in the expected format, we convert it
+			if(!downloadedResponse.filePath.endsWith(`.${format}`)){
+				consola.info(`File is not in the user-expected format (${format}), we will convert it.`)
+				const oldFormat = downloadedResponse.filePath.split(".").pop()
+
+				const convertedResponse = await convertFile(downloadedResponse.filePath, format)
+				if(!convertedResponse.success || convertedResponse.error){
+					consola.error(`File conversion failed for request ${requestId} with error: ${convertedResponse?.error || "Unknown error"}`)
+					return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | An error occured while converting the file from ${oldFormat.toUpperCase()} to ${format.toUpperCase()}</b>\n\nPlease try again later or report this issue to the <a href="https://t.me/JohanStick">bot owner</a>. You can get more details about this issue here:\n\n<pre>${escapeHtml(convertedResponse?.error || "Unknown error")?.substring(0, 500)}</pre>`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+				}
+
+				downloadedResponse.filePath = convertedResponse.filePath // Update file path to the new one
+				consola.success(`File converted successfully from ${oldFormat} to ${format}`)
+			}
+
+			// Check file size
+			var fileSize = fs.statSync(downloadedResponse.filePath).size
+			consola.info(`File size for request ${requestId} is ${(fileSize / (1024 * 1024)).toFixed(2)} MB (${fileSize} bytes)`)
+			if(fileSize > 2 * 1024 * 1024 * 1024){ // Telegram has 2 GB limit when using local server
+				consola.warn(`File size is too large (${(fileSize / (1024 * 1024)).toFixed(2)} MB), we will notify the user.`)
+				return ctx.telegram.editMessageText(request.chatId, request.messageId, null, `<b>🔴 | Your download exceed the Telegram file size limit (${(fileSize / (1024 * 1024)).toFixed(2)} MB / 1.5 GB).</b>\n\nPlease try again with another video or report this issue to the <a href="https://t.me/JohanStick">bot owner</a> if you think this is a mistake.`, { parse_mode: "HTML", link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
+			}
+
+			fileNameFallback = downloadedResponse.filename || `downloaded_file.${format}`
+			filePath = downloadedResponse.filePath
 		}
 
 		// Send the file to the user
 		const details = request?.details || {}
 		var fileName = `${details?.title?.length ? details?.title : ""}${details?.title?.length && details?.author?.length ? " - " : ""}${details?.author?.length ? details?.author : ""}`
-		if(!fileName.length) fileName = downloadedResponse.filename || `downloaded_file.${format}`
+		if(!fileName.length) fileName = fileNameFallback || `downloaded_file.${format}`
 		fileName = fileName.replace(/[^a-zA-Z0-9_\- ]/g, "_").substring(0, 100) // Sanitize the file name and limit it to 100 characters
 		consola.info(`Sending the file to the user with file name: ${fileName}`)
 
@@ -461,7 +506,7 @@ bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 				async () => {
 					// Send the file
 					await ctx[format == "mp4" ? "replyWithVideo" : format == "mp3" ? "replyWithAudio" : "replyWithDocument"]({
-						source: downloadedResponse.filePath,
+						source: filePath,
 						filename: fileName + (format == "mp4" ? ".mp4" : format == "mp3" ? ".mp3" : ""),
 					}, {
 						title: details?.title || "Your downloaded file",
@@ -480,14 +525,12 @@ bot.action(/download_(mp3|mp4)_(.+)/, async (ctx) => {
 			catchErrors(err, ctx)
 		}
 
-		// Finally, we delete the file from the disk
-		consola.info(`Request ${requestId} completed successfully, file sent to user ${ctx.from.id}.`)
-		try {
-			fs.unlinkSync(downloadedResponse.filePath)
-			consola.info(`File "${downloadedResponse.filePath}" associated to request ${requestId} deleted from disk.`)
-		} catch (err) {
-			consola.error(`Failed to delete the file "${downloadedResponse.filePath}" associated to request ${requestId} from disk:`, err)
-		}
+		// Finally, we save the file in cache for later use
+		consola.success(`Request ${requestId} completed successfully, file sent to user ${ctx.from.id}.`)
+		downloadsCache.set(`${format}:${request.url}`, {
+			filePath: filePath,
+			fileNameFallback: fileNameFallback,
+		})
 	})().catch(err => {
 		consola.error("An error occured while processing the download action:", err)
 		catchErrors(err, ctx)

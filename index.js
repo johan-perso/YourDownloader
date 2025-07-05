@@ -23,6 +23,7 @@ const subproviders = {
 	"spotify": require("./src/subproviders/spotify"),
 	"deezer": require("./src/subproviders/deezer"),
 	"tidal": require("./src/subproviders/tidal"),
+	"amazonmusic": require("./src/subproviders/amazonmusic"),
 	"songlink": require("./src/subproviders/songlink"),
 }
 const domainsSubproviders = {
@@ -30,6 +31,7 @@ const domainsSubproviders = {
 	"open.spotify.com": "spotify",
 	"deezer.com": "deezer",
 	"tidal.com": "tidal",
+	"music.amazon.com": "amazonmusic",
 	"song.link": "songlink",
 }
 const searchPlatforms = {

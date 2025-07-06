@@ -238,7 +238,7 @@ bot.on("message", async (ctx) => {
 	case "/crashtest":
 		return ctx.reply("").catch(err => catchErrors(err, ctx))
 	case "/start":
-		return ctx.replyWithHTML("<b>YourDownloader 👨‍🍳</b>\n\n<b>1.</b> Send any links here and we will check if we can download it.\n<b>2.</b> Select the file format you need (Video / Audio).\n<b>3.</b> File will be sent here when available.\n\n<i><b>WIP / DO NOT USE RIGHT NOW</b></i>").catch(err => catchErrors(err, ctx))
+		return ctx.replyWithHTML("<b>YourDownloader 👨‍🍳</b>\n\n<b>1.</b> Send any links here and we will check if we can download it.\n<b>2.</b> Select the file format you need (Video / Audio).\n<b>3.</b> File will be sent here when available.").catch(err => catchErrors(err, ctx))
 	case "/donate":
 		return ctx.replyWithHTML("<b>YourDownloader 👨‍🍳</b>\n\nYou can support this bot through many ways, here is the list.\n\nBy giving money:\n- <a href='https://paypal.me/moipastoii'>PayPal @moipastoii</a>\n- <a href='https://johanstick.fr/#donate'>Crypto (ETH, SOL, BTC)</a>\n- <a href='https://ko-fi.com/johan_stickman'>Ko-Fi @johan_stickman</a>\n\nWithout paying:\n- <a href='https://github.com/johan-perso/yourdownloader'>Star the GitHub repository</a>\n- <a href='https://github.com/johan-perso'>Follow me on GitHub</a>\n- <a href='https://x.com/Johan_Stickman'>Follow me on Twitter</a>", { link_preview_options: { is_disabled: true } }).catch(err => catchErrors(err, ctx))
 	default:

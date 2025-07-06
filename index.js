@@ -237,6 +237,9 @@ bot.on("message", async (ctx) => {
 	switch(messageContent.toLowerCase()){
 	case "/crashtest":
 		return ctx.reply("").catch(err => catchErrors(err, ctx))
+	case "/debug":
+		var version = require("./package.json")?.version || "unknown"
+		return ctx.replyWithHTML(`<b>YourDownloader 👨‍🍳📡</b>\n\nBot Version: <code>${version}</code>\nNodeJS version: <code>${process.versions.node}</code>\nUptime: <code>${msPrettify(process.uptime() * 1000, { max: 2 })}</code>`).catch(err => catchErrors(err, ctx))
 	case "/start":
 		return ctx.replyWithHTML("<b>YourDownloader 👨‍🍳</b>\n\n<b>1.</b> Send any links here and we will check if we can download it.\n<b>2.</b> Select the file format you need (Video / Audio).\n<b>3.</b> File will be sent here when available.").catch(err => catchErrors(err, ctx))
 	case "/donate":

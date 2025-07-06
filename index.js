@@ -135,6 +135,8 @@ async function globalCheck(){
 		fatal.push(process.versions.node > 21 ? "You need to update the version of NodeJS you are using to at least v22, as the Fetch API is not available in older versions." : "It seems your NodeJS version is recent enough, but we still recommend you to update if possible.")
 	}
 
+	consola.success(`YourDownload version is ${require("./package.json")?.version}`)
+
 	if(fatal.length){
 		consola.error(`Fatal errors were found during global checks:\n${fatal.map(err => `- ${err}`).join("\n")}`)
 		return process.exit(1)

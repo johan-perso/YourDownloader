@@ -1,4 +1,3 @@
-const he = require("he")
 const NodeCache = require("node-cache")
 const amazonmusicCache = new NodeCache({ stdTTL: 60 * 60 * 4 }) // Cache to 4 hours
 

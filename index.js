@@ -251,7 +251,7 @@ bot.on("message", async (ctx) => {
 	// If we reach this point, it means that the message is not a command
 	if(messageContent.startsWith("http://")) messageContent = messageContent.replace("http://", "https://") // we convert http links to https links at start of message
 	var urlInsideMsg = messageContent.match(/\bhttps?:\/\/\S+/i) // try to get any URL inside the message
-	if(urlInsideMsg[0]) messageContent = urlInsideMsg[0] // if we found a URL, we use it as the message content
+	if(urlInsideMsg && urlInsideMsg?.[0]) messageContent = urlInsideMsg[0] // if we found a URL, we use it as the message content
 	if(!messageContent.startsWith("https://")) return ctx.reply("⚠️ | Invalid message. Please use /start to get more details about this bot.").catch(err => catchErrors(err, ctx))
 
 	var url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]

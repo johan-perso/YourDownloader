@@ -9,6 +9,10 @@ const { sanitizeUrl } = require("./src/utils/sanitize")
 const convertFile = require("./src/utils/convertFile")
 require("dotenv").config()
 
+const ALLOWED_USERS = process.env.ALLOWED_USERS ? process.env.ALLOWED_USERS.split(",").map(id => id.trim()) : []
+const IS_DEPRECATED = !!ALLOWED_USERS.length // will be deprecated if more than 0 users is defined as allowed
+if(IS_DEPRECATED) console.log(`Bot will only be available to ${ALLOWED_USERS.length} allowed users ${ALLOWED_USERS.length < 10 ? (': ' + ALLOWED_USERS) : ''}`)
+
 const downloadsCache = new (require("node-cache"))({ stdTTL: 60 * 60 * 48 }) // Cache to 48 hours
 const requests = {}
 
@@ -231,6 +235,7 @@ bot.on("message", async (ctx) => {
 	if(dateMsg < dateNow - 120000) return consola.info(`Ignoring the new message (${ctx.message.message_id}): it was sent a long time ago, msg date = ${new Date(dateMsg).toLocaleTimeString()} (${dateMsg}) ; now: ${new Date(dateNow).toLocaleTimeString()} (${dateNow})`) // we reject messages older than 2 minutes
 	if(!ctx.message.text) return consola.info(`Ignoring the new message (${ctx.message.message_id}): it has no text`) // we reject messages without text
 
+	const userId = ctx?.from?.id || ctx?.message?.from?.id || ctx?.update?.message?.from?.id || 'unknown'
 	var messageContent = ctx.message.text.trim() // properly get the message content
 
 	// Commands
@@ -239,7 +244,7 @@ bot.on("message", async (ctx) => {
 		return ctx.reply("").catch(err => catchErrors(err, ctx))
 	case "/debug":
 		var version = require("./package.json")?.version || "unknown"
-		return ctx.replyWithHTML(`<b>YourDownloader 👨‍🍳📡</b>\n\nBot Version: <code>${version}</code>\nNodeJS version: <code>${process.versions.node}</code>\nUptime: <code>${msPrettify(process.uptime() * 1000, { max: 2 })}</code>`).catch(err => catchErrors(err, ctx))
+		return ctx.replyWithHTML(`<b>YourDownloader 👨‍🍳📡</b>\n\nBot Version: <code>${version}</code>\nNodeJS version: <code>${process.versions.node}</code>\nUptime: <code>${msPrettify(process.uptime() * 1000, { max: 2 })}</code>\nYour ID: <code>${userId}</code>`).catch(err => catchErrors(err, ctx))
 	case "/start":
 		return ctx.replyWithHTML("<b>YourDownloader 👨‍🍳</b>\n\n<b>1.</b> Send any links here and we will check if we can download it.\n<b>2.</b> Select the file format you need (Video / Audio).\n<b>3.</b> File will be sent here when available.").catch(err => catchErrors(err, ctx))
 	case "/donate":
@@ -253,6 +258,16 @@ bot.on("message", async (ctx) => {
 	var urlInsideMsg = messageContent.match(/\bhttps?:\/\/\S+/i) // try to get any URL inside the message
 	if(urlInsideMsg && urlInsideMsg?.[0]) messageContent = urlInsideMsg[0] // if we found a URL, we use it as the message content
 	if(!messageContent.startsWith("https://")) return ctx.reply("⚠️ | Invalid message. Please use /start to get more details about this bot.").catch(err => catchErrors(err, ctx))
+
+	// Main instance isn't hosted anymore, only allowed users can use it
+	if(IS_DEPRECATED && (!userId || !ALLOWED_USERS.includes(userId.toString()))){
+		const ctxReply = await ctx.replyWithHTML("<b>❤️‍🩹 | YourDownloader isn't hosted anymore</b>\n\nDue to abuses, this bot cannot be used to download any media starting from December 10, 2025.\nThis decision may be reverted at any times, be faithful ig.\n\nYou can still host the bot yourself on your own server if you've got one! Source code is and will continue to be available at https://github.com/johan-perso/yourdownloader").catch(err => catchErrors(err, ctx))
+		if(!ctxReply){
+			consola.error("Failed to send the initial reply to the user, this could have caused issues later on. We would have still sent the deprecated notice.")
+			return
+		}
+		return
+	}
 
 	var url = messageContent.match(/\bhttps?:\/\/\S+/i)?.[0]
 	consola.info(`Received a link: ${url}`)

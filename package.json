@@ -1,7 +1,7 @@
 {
 	"private": true,
 	"name": "yourdownloader",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Download videos and audios from various platforms using your own private Telegram bot.",
 	"main": "index.js",
 	"scripts": {
